@@ -19,7 +19,10 @@ A ❄ appears in the menu bar:
 
 - **Stop / Start Snow**
 - **Light · Medium · Blizzard** — how hard it comes down
+- **Ease Off on Battery** — on by default, see below
 - **Quit Snowfall**
+
+Stop it again any time with `./snow.sh stop`. Your intensity choice is remembered.
 
 Needs macOS with the Xcode command line tools (`xcode-select --install`). The app runs
 as a menu bar accessory: no Dock icon, and it never takes focus from what you're doing.
@@ -35,7 +38,7 @@ Open `index.html` in a browser for a standalone night-sky version, and press
 | --- | --- |
 | `index.html` | The whole snow engine: a canvas, flakes with depth, sway and wandering wind. Transparent when loaded with `?overlay=1`. |
 | `Snow.swift` | One borderless `NSWindow` per screen at screen-saver level, `ignoresMouseEvents`, joining all Spaces, hosting the page in a transparent `WKWebView`. |
-| `snow.sh` | Builds when the source has changed, then runs. |
+| `snow.sh` | `start` builds when the source has changed, then runs; `stop` ends it. |
 
 Each flake gets a random *depth*. Near flakes are bigger, brighter and faster; far ones
 are small and faint, which is what makes the fall read as three-dimensional rather than
@@ -43,9 +46,40 @@ as dots sliding down a pane of glass. A wind value wanders every few seconds so 
 minutes of snow look alike. Flake count scales with screen area, so a 6K display gets a
 real storm instead of a sprinkle.
 
+## Battery
+
+Decorative snow has no business draining a laptop, so the overlay gives up work
+wherever the work cannot be seen:
+
+- **30 fps, not 120.** The loop is timer-driven, so the process wakes about thirty
+  times a second instead of once per display refresh only to discard most frames.
+- **A few draw calls per frame.** Flakes are grouped into five fixed opacities and each
+  group is one path and one fill, rather than three canvas state changes per flake.
+- **Fewer pixels.** The canvas is capped at 1.5x, not full Retina scale — invisible on
+  dots two pixels wide, and well under half the backing store on a 5K display.
+- **Nothing at all when hidden.** Window occlusion, display sleep and screen lock stop
+  the loop dead. Snow behind a full-screen app costs nothing.
+- **Easing off on battery.** Unplugged or in Low Power Mode it drops to 20 fps, 1x
+  pixels and 55% of the flakes. It is still snowing; it just stops costing much.
+- **No disk.** WebKit runs with a non-persistent data store, so the overlay never
+  writes a cache or a cookie.
+
+Measured on an Apple silicon MacBook, one display, Medium, on battery — CPU time of the
+app plus its WebKit process sampled over 30 seconds:
+
+| | CPU |
+| --- | --- |
+| before these changes | 10.1% |
+| now | 6.0% |
+
+That is one sample on one machine, not a benchmark suite: expect the shape of the
+result (roughly a 40% cut, and zero while hidden) rather than the exact figure.
+Reproduce it with `measure.sh`-style sampling of `ps -o cputime`.
+
 ## Notes
 
-- Snow is drawn above normal windows. A full-screen app on its own Space stays clear.
+- Snow is drawn above normal windows. A full-screen app on its own Space stays clear —
+  and the snow for that screen pauses while you are over there.
 - Screens being plugged in, unplugged or resized rebuilds the overlays automatically.
 
 ## License
