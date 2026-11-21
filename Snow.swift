@@ -11,7 +11,8 @@ import WebKit
 
 // MARK: - One overlay window per screen
 
-final class SnowWindow: NSWindow {
+final class SnowOverlay {
+    let window: NSWindow
     let web: WKWebView
 
     init(screen: NSScreen, pageURL: URL, intensity: Int) {
@@ -19,21 +20,22 @@ final class SnowWindow: NSWindow {
         config.suppressesIncrementalRendering = false
         web = WKWebView(frame: .zero, configuration: config)
 
-        super.init(contentRect: screen.frame,
-                   styleMask: [.borderless],
-                   backing: .buffered,
-                   defer: false,
-                   screen: screen)
+        window = NSWindow(contentRect: screen.frame,
+                          styleMask: [.borderless],
+                          backing: .buffered,
+                          defer: false,
+                          screen: screen)
 
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = false
-        ignoresMouseEvents = true            // clicks pass straight through to your apps
-        isMovableByWindowBackground = false
-        isReleasedWhenClosed = false
-        displaysWhenScreenProfileChanges = true
-        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.ignoresMouseEvents = true      // clicks pass straight through to your apps
+        window.isMovableByWindowBackground = false
+        window.isReleasedWhenClosed = false
+        window.displaysWhenScreenProfileChanges = true
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary,
+                                     .fullScreenAuxiliary, .ignoresCycle]
 
         // Keep the web view itself transparent: no white page behind the flakes.
         web.setValue(false, forKey: "drawsBackground")
@@ -46,13 +48,13 @@ final class SnowWindow: NSWindow {
         web.frame = host.bounds
         web.autoresizingMask = [.width, .height]
         host.addSubview(web)
-        contentView = host
+        window.contentView = host
 
-        setFrame(screen.frame, display: true)
+        window.setFrame(screen.frame, display: true)
         web.loadFileURL(pageURL.appendingQueryItem("overlay", "1"),
                         allowingReadAccessTo: pageURL.deletingLastPathComponent())
         apply(intensity: intensity, afterLoad: true)
-        orderFrontRegardless()
+        window.orderFrontRegardless()
     }
 
     func apply(intensity: Int, afterLoad: Bool = false) {
@@ -76,7 +78,7 @@ private extension URL {
 // MARK: - App
 
 final class SnowController: NSObject, NSApplicationDelegate {
-    private var windows: [SnowWindow] = []
+    private var overlays: [SnowOverlay] = []
     private var status: NSStatusItem?
     private var intensity = 2          // 1 light · 2 medium · 3 blizzard
     private var snowing = true
@@ -99,15 +101,15 @@ final class SnowController: NSObject, NSApplicationDelegate {
     private func startSnowing() {
         tearDownWindows()
         for screen in NSScreen.screens {
-            windows.append(SnowWindow(screen: screen, pageURL: pageURL, intensity: intensity))
+            overlays.append(SnowOverlay(screen: screen, pageURL: pageURL, intensity: intensity))
         }
         snowing = true
         refreshMenu()
     }
 
     private func tearDownWindows() {
-        windows.forEach { $0.orderOut(nil); $0.close() }
-        windows.removeAll()
+        overlays.forEach { $0.window.orderOut(nil); $0.window.close() }
+        overlays.removeAll()
     }
 
     @objc private func screensChanged() {
@@ -163,7 +165,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
 
     @objc private func setIntensity(_ sender: NSMenuItem) {
         intensity = sender.tag
-        windows.forEach { $0.apply(intensity: intensity) }
+        overlays.forEach { $0.apply(intensity: intensity) }
         refreshMenu()
     }
 
