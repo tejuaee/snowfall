@@ -116,17 +116,45 @@
   const FPS_NORMAL = 30;
   let fps = FPS_NORMAL;
   let frameInterval = 1000 / fps;
-  let timer = 0, raf = 0;
+  let timer = 0, raf = 0, fallback = 0;
   let last = performance.now();
+  let lastDraw = last;
 
   function schedule() {
     if (paused) return;
-    timer = setTimeout(() => { raf = requestAnimationFrame(frame); }, frameInterval);
+    clearTimeout(timer);
+    timer = setTimeout(tick, frameInterval);
   }
+
+  // requestAnimationFrame does not fire while WebKit considers the page hidden, and it
+  // considers an overlay window hidden the moment another window covers it. Asking for
+  // a frame and waiting for it therefore killed the loop outright when you switched
+  // windows. So the timer owns the clock: rAF only lines the frame up with the display,
+  // and if it has not answered in time we draw without it.
+  function tick() {
+    let drew = false;
+    const draw = (now) => {
+      if (drew) return;
+      drew = true;
+      clearTimeout(fallback);
+      cancelAnimationFrame(raf);
+      frame(now);
+    };
+    raf = requestAnimationFrame(draw);
+    fallback = setTimeout(() => draw(performance.now()), Math.max(50, frameInterval));
+  }
+
+  // Last line of defence. If no frame has been drawn for a second and a half while the
+  // snow is supposed to be falling, restart the loop: a frozen overlay is the one bug
+  // nobody watching it can work around.
+  setInterval(() => {
+    if (!paused && performance.now() - lastDraw > 1500) schedule();
+  }, 2000);
 
   function frame(now) {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
+    lastDraw = now;
 
     windTimer -= dt;
     if (windTimer <= 0) { windGoal = rand(-34, 34); windTimer = rand(3, 8); }
