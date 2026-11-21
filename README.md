@@ -32,6 +32,28 @@ as a menu bar accessory: no Dock icon, and it never takes focus from what you're
 Open `index.html` in a browser for a standalone night-sky version, and press
 **1 / 2 / 3** to change the intensity. Hosted on GitHub Pages it works as a live demo.
 
+## Snow on the lock screen
+
+```bash
+./install-saver.sh
+```
+
+Then **System Settings → Screen Saver → Other → Snowfall**, and under **Lock Screen**
+set *Start Screen Saver when inactive*. The snow now comes down whenever the Mac is
+idle or locked.
+
+Worth being straight about why it is a screen saver and not just the overlay: the lock
+screen is drawn by `loginwindow` in its own session, above every window a normal
+application is allowed to create. Nothing a user app does will paint over it. What macOS
+*does* run on an idle or locked Mac is the selected screen saver, so `Snowfall.saver` is
+a second, native implementation of the same engine for exactly that surface.
+
+Two consequences:
+
+- The password prompt itself — after you press a key and the saver exits — shows your
+  wallpaper, not snow. That one is not reachable.
+- The saver is unsigned, so macOS may want you to allow it the first time.
+
 ## How it works
 
 | File | What it does |
@@ -39,7 +61,9 @@ Open `index.html` in a browser for a standalone night-sky version, and press
 | `index.html` | The whole snow engine: a canvas, flakes with depth, sway and wandering wind. Transparent when loaded with `?overlay=1`. |
 | `Snow.swift` | One borderless `NSWindow` per screen at screen-saver level, `ignoresMouseEvents`, joining all Spaces, hosting the page in a transparent `WKWebView`. |
 | `snow.sh` | `start` builds when the source has changed, then runs; `stop` ends it. |
-| `ci/check.sh` | Pre-push check: builds, parses the engine, verifies the page hooks. |
+| `Saver.swift` | `Snowfall.saver`: the same snow as a `ScreenSaverView`, drawn natively with Core Graphics, for the idle and lock screen. |
+| `install-saver.sh` | Builds the saver bundle and installs it to `~/Library/Screen Savers`. |
+| `ci/check.sh` | Pre-push check: builds both, parses the engine, verifies the page hooks, loads the saver and asserts it draws. |
 
 Each flake gets a random *depth*. Near flakes are bigger, brighter and faster; far ones
 are small and faint, which is what makes the fall read as three-dimensional rather than
@@ -82,6 +106,10 @@ Reproduce it with `measure.sh`-style sampling of `ps -o cputime`.
 - Snow is drawn above normal windows. A full-screen app on its own Space stays clear —
   and the snow for that screen pauses while you are over there.
 - Screens being plugged in, unplugged or resized rebuilds the overlays automatically.
+- Occlusion is a noisy signal — switching window, app or Space reports the overlay
+  covered for a moment — so the overlay waits two seconds and re-checks before pausing,
+  and resumes immediately. Frames are driven by a timer with a watchdog, because
+  `requestAnimationFrame` does not fire while WebKit considers the page hidden.
 
 ## License
 
