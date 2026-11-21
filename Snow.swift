@@ -220,6 +220,10 @@ final class SnowController: NSObject, NSApplicationDelegate {
             name: NSWindow.didChangeOcclusionStateNotification, object: nil)
 
         let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(self, selector: #selector(keepOnTop),
+                       name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        ws.addObserver(self, selector: #selector(keepOnTop),
+                       name: NSWorkspace.didActivateApplicationNotification, object: nil)
         ws.addObserver(self, selector: #selector(displaysSlept),
                        name: NSWorkspace.screensDidSleepNotification, object: nil)
         ws.addObserver(self, selector: #selector(displaysWoke),
@@ -239,15 +243,48 @@ final class SnowController: NSObject, NSApplicationDelegate {
     @objc private func sessionLocked() { screenLocked = true; updatePause() }
     @objc private func sessionUnlocked() { screenLocked = false; updatePause() }
 
-    /// A window behind a full-screen app, or on a Space you are not looking at, loses
-    /// `.visible`. Its snow stops entirely instead of spending GPU time on frames that
-    /// are never composited.
+    private var occlusionCheck: DispatchWorkItem?
+
+    /// Occlusion flickers constantly in normal use: switching window, app, Space or tab
+    /// makes macOS report the overlay covered for a moment and visible again right
+    /// after. Pausing on that is what made the snow stutter and vanish for a split
+    /// second. So going quiet is delayed by two seconds and re-checked, while coming
+    /// back is immediate — being a frame late to stop costs nothing, being late to
+    /// start is the bug you see.
     private func updatePause() {
-        let allHidden = displayAsleep || screenLocked
-        for overlay in overlays {
-            let hidden = allHidden || !overlay.window.occlusionState.contains(.visible)
-            overlay.setPaused(hidden)
+        occlusionCheck?.cancel()
+
+        if displayAsleep || screenLocked {
+            overlays.forEach { $0.setPaused(true) }
+            return
         }
+
+        for overlay in overlays where overlay.window.occlusionState.contains(.visible) {
+            overlay.setPaused(false)
+        }
+
+        guard overlays.contains(where: { !$0.window.occlusionState.contains(.visible) })
+        else { return }
+
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, !self.displayAsleep, !self.screenLocked else { return }
+            for overlay in self.overlays {
+                overlay.setPaused(!overlay.window.occlusionState.contains(.visible))
+            }
+        }
+        occlusionCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: check)
+    }
+
+    /// Switching app or Space can leave the overlay ordered behind what you switched
+    /// to, which looks like the snow disappearing. Re-assert the level and the order.
+    @objc private func keepOnTop() {
+        let top = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
+        for overlay in overlays {
+            overlay.window.level = top
+            overlay.window.orderFrontRegardless()
+        }
+        updatePause()
     }
 
     // MARK: Menu bar
