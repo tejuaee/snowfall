@@ -25,4 +25,9 @@ for hook in setIntensity setPaused setPowerSaver; do
   grep -q "window.$hook = " index.html || { echo "  missing window.$hook"; exit 1; }
 done
 
+echo "· building and loading the screen saver"
+./install-saver.sh --build-only >/dev/null
+swiftc -O ci/check-saver.swift -o /tmp/snowfall-saver-check -framework ScreenSaver
+/tmp/snowfall-saver-check build/Snowfall.saver
+
 echo "all good ❄"

@@ -3,6 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+BUILD_ONLY=0
+[[ "${1:-}" == "--build-only" ]] && BUILD_ONLY=1
+
 BUNDLE="build/Snowfall.saver"
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
@@ -29,6 +32,11 @@ echo "· building Snowfall.saver"
 swiftc -O -emit-library -module-name SnowfallSaver Saver.swift \
   -o "$BUNDLE/Contents/MacOS/Snowfall" \
   -framework ScreenSaver -framework AppKit
+
+if [[ $BUILD_ONLY == 1 ]]; then
+  echo "built: $BUNDLE (not installed)"
+  exit 0
+fi
 
 DEST="$HOME/Library/Screen Savers"
 mkdir -p "$DEST"
