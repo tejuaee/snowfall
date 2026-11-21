@@ -39,6 +39,7 @@ Open `index.html` in a browser for a standalone night-sky version, and press
 | `index.html` | The whole snow engine: a canvas, flakes with depth, sway and wandering wind. Transparent when loaded with `?overlay=1`. |
 | `Snow.swift` | One borderless `NSWindow` per screen at screen-saver level, `ignoresMouseEvents`, joining all Spaces, hosting the page in a transparent `WKWebView`. |
 | `snow.sh` | `start` builds when the source has changed, then runs; `stop` ends it. |
+| `ci/check.sh` | Pre-push check: builds, parses the engine, verifies the page hooks. |
 
 Each flake gets a random *depth*. Near flakes are bigger, brighter and faster; far ones
 are small and faint, which is what makes the fall read as three-dimensional rather than
