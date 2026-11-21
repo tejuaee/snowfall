@@ -197,18 +197,23 @@
   // nothing to draw: the app calls setPaused(true) and the loop stops dead instead of
   // animating snow nobody can see.
   window.setPaused = (p) => {
-    p = !!p;
-    if (p === paused) return;
-    paused = p;
-    if (paused) {
-      clearTimeout(timer);
-      cancelAnimationFrame(raf);
-    } else {
+    paused = !!p;
+    clearTimeout(timer);
+    clearTimeout(fallback);
+    cancelAnimationFrame(raf);
+    if (!paused) {
       last = performance.now();
-      schedule();
+      lastDraw = last;
+      schedule();          // always rearm: resuming must never depend on prior state
     }
   };
-  document.addEventListener("visibilitychange", () => window.setPaused(document.hidden));
+
+  // The page's own visibility is not a usable stop signal for an overlay — WebKit calls
+  // it hidden while the window is merely covered — so it only ever nudges the loop back
+  // into life, never out of it.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !paused) schedule();
+  });
 
   // Called when the Mac moves to battery or Low Power Mode: fewer flakes, fewer
   // frames, fewer pixels. It is still visibly snowing.
