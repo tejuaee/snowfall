@@ -57,6 +57,11 @@ final class SnowOverlay {
         window.orderFrontRegardless()
     }
 
+    func setPaused(_ paused: Bool) {
+        web.evaluateJavaScript("window.setPaused && window.setPaused(\(paused));",
+                               completionHandler: nil)
+    }
+
     func apply(intensity: Int, afterLoad: Bool = false) {
         let js = "window.setIntensity && window.setIntensity(\(intensity));"
         // Right after loadFileURL the page may not be parsed yet, so give it a beat.
@@ -92,6 +97,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenuBarItem()
         startSnowing()
+        observeVisibility()
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -115,6 +121,47 @@ final class SnowController: NSObject, NSApplicationDelegate {
     @objc private func screensChanged() {
         guard snowing else { return }
         startSnowing()
+    }
+
+    // MARK: Never animate what nobody can see
+
+    private var displayAsleep = false
+    private var screenLocked = false
+
+    private func observeVisibility() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(occlusionChanged),
+            name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(self, selector: #selector(displaysSlept),
+                       name: NSWorkspace.screensDidSleepNotification, object: nil)
+        ws.addObserver(self, selector: #selector(displaysWoke),
+                       name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        // Screen lock is only published on the distributed centre.
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(self, selector: #selector(sessionLocked),
+                        name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+        dnc.addObserver(self, selector: #selector(sessionUnlocked),
+                        name: Notification.Name("com.apple.screenIsUnlocked"), object: nil)
+    }
+
+    @objc private func occlusionChanged() { updatePause() }
+    @objc private func displaysSlept() { displayAsleep = true; updatePause() }
+    @objc private func displaysWoke() { displayAsleep = false; updatePause() }
+    @objc private func sessionLocked() { screenLocked = true; updatePause() }
+    @objc private func sessionUnlocked() { screenLocked = false; updatePause() }
+
+    /// A window behind a full-screen app, or on a Space you are not looking at, loses
+    /// `.visible`. Its snow stops entirely instead of spending GPU time on frames that
+    /// are never composited.
+    private func updatePause() {
+        let allHidden = displayAsleep || screenLocked
+        for overlay in overlays {
+            let hidden = allHidden || !overlay.window.occlusionState.contains(.visible)
+            overlay.setPaused(hidden)
+        }
     }
 
     // MARK: Menu bar
