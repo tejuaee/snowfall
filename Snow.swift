@@ -8,6 +8,8 @@
 
 import AppKit
 import WebKit
+import IOKit.ps
+import IOKit.pwr_mgt
 
 // MARK: - One overlay window per screen
 
@@ -15,7 +17,7 @@ final class SnowOverlay {
     let window: NSWindow
     let web: WKWebView
 
-    init(screen: NSScreen, pageURL: URL, intensity: Int) {
+    init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool) {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         web = WKWebView(frame: .zero, configuration: config)
@@ -53,7 +55,7 @@ final class SnowOverlay {
         window.setFrame(screen.frame, display: true)
         web.loadFileURL(pageURL.appendingQueryItem("overlay", "1"),
                         allowingReadAccessTo: pageURL.deletingLastPathComponent())
-        apply(intensity: intensity, afterLoad: true)
+        push(intensity: intensity, powerSaver: powerSaver, delay: 0.35)
         window.orderFrontRegardless()
     }
 
@@ -62,10 +64,13 @@ final class SnowOverlay {
                                completionHandler: nil)
     }
 
-    func apply(intensity: Int, afterLoad: Bool = false) {
-        let js = "window.setIntensity && window.setIntensity(\(intensity));"
-        // Right after loadFileURL the page may not be parsed yet, so give it a beat.
-        let delay = afterLoad ? 0.35 : 0.0
+    /// Right after `loadFileURL` the page may not be parsed yet, hence the delay on
+    /// the first push.
+    func push(intensity: Int, powerSaver: Bool, delay: TimeInterval = 0) {
+        let js = """
+        window.setPowerSaver && window.setPowerSaver(\(powerSaver));
+        window.setIntensity && window.setIntensity(\(intensity));
+        """
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.web.evaluateJavaScript(js, completionHandler: nil)
         }
@@ -98,6 +103,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
         buildMenuBarItem()
         startSnowing()
         observeVisibility()
+        observePower()
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -107,7 +113,8 @@ final class SnowController: NSObject, NSApplicationDelegate {
     private func startSnowing() {
         tearDownWindows()
         for screen in NSScreen.screens {
-            overlays.append(SnowOverlay(screen: screen, pageURL: pageURL, intensity: intensity))
+            overlays.append(SnowOverlay(screen: screen, pageURL: pageURL,
+                                        intensity: intensity, powerSaver: powerSaving))
         }
         snowing = true
         refreshMenu()
@@ -121,6 +128,60 @@ final class SnowController: NSObject, NSApplicationDelegate {
     @objc private func screensChanged() {
         guard snowing else { return }
         startSnowing()
+    }
+
+    // MARK: Battery awareness
+
+    private(set) var easeOffOnBattery = true
+    private(set) var powerSaving = false
+
+    private func observePower() {
+        // Low Power Mode being switched on or off.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(powerStateChanged),
+            name: NSNotification.Name.NSProcessInfoPowerStateDidChange, object: nil)
+
+        // IOKit tells us when the Mac is plugged in or unplugged. The callback takes a
+        // C function pointer, so it hands off through a notification.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(powerStateChanged), name: .snowPowerChanged, object: nil)
+        if let source = IOPSNotificationCreateRunLoopSource({ _ in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .snowPowerChanged, object: nil)
+            }
+        }, nil)?.takeRetainedValue() {
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+        }
+
+        applyPowerState()
+    }
+
+    private func runningOnBattery() -> Bool {
+        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue()
+        else { return false }
+        return (type as String) != kIOPMACPowerKey
+    }
+
+    @objc private func powerStateChanged() {
+        applyPowerState()
+        refreshMenu()
+    }
+
+    /// On battery or in Low Power Mode the snow runs at 20 fps, 1x pixels and a bit
+    /// over half the flakes. It still snows; it just stops costing much.
+    private func applyPowerState() {
+        let saving = easeOffOnBattery
+            && (runningOnBattery() || ProcessInfo.processInfo.isLowPowerModeEnabled)
+        guard saving != powerSaving else { return }
+        powerSaving = saving
+        overlays.forEach { $0.push(intensity: intensity, powerSaver: powerSaving) }
+    }
+
+    func setEaseOffOnBattery(_ on: Bool) {
+        easeOffOnBattery = on
+        applyPowerState()
+        refreshMenu()
     }
 
     // MARK: Never animate what nobody can see
@@ -212,7 +273,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
 
     @objc private func setIntensity(_ sender: NSMenuItem) {
         intensity = sender.tag
-        overlays.forEach { $0.apply(intensity: intensity) }
+        overlays.forEach { $0.push(intensity: intensity, powerSaver: powerSaving) }
         refreshMenu()
     }
 
@@ -220,6 +281,10 @@ final class SnowController: NSObject, NSApplicationDelegate {
         tearDownWindows()
         NSApp.terminate(nil)
     }
+}
+
+extension Notification.Name {
+    static let snowPowerChanged = Notification.Name("snowfall.powerSourceChanged")
 }
 
 // MARK: - Entry point
