@@ -85,12 +85,28 @@ private extension URL {
     }
 }
 
+// MARK: - Remembered settings
+
+enum Defaults {
+    private static let store = UserDefaults.standard
+
+    static var intensity: Int {
+        get { (1...3).contains(store.integer(forKey: "intensity")) ? store.integer(forKey: "intensity") : 2 }
+        set { store.set(newValue, forKey: "intensity") }
+    }
+
+    static var easeOffOnBattery: Bool {
+        get { store.object(forKey: "easeOffOnBattery") as? Bool ?? true }
+        set { store.set(newValue, forKey: "easeOffOnBattery") }
+    }
+}
+
 // MARK: - App
 
 final class SnowController: NSObject, NSApplicationDelegate {
     private var overlays: [SnowOverlay] = []
     private var status: NSStatusItem?
-    private var intensity = 2          // 1 light · 2 medium · 3 blizzard
+    private var intensity = Defaults.intensity   // 1 light · 2 medium · 3 blizzard
     private var snowing = true
     private let pageURL: URL
 
@@ -132,7 +148,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
 
     // MARK: Battery awareness
 
-    private(set) var easeOffOnBattery = true
+    private(set) var easeOffOnBattery = Defaults.easeOffOnBattery
     private(set) var powerSaving = false
 
     private func observePower() {
@@ -240,6 +256,13 @@ final class SnowController: NSObject, NSApplicationDelegate {
         guard let menu = status?.menu else { return }
         menu.removeAllItems()
 
+        let state = NSMenuItem(
+            title: powerSaving ? "Easing off — on battery" : "Full snow — plugged in",
+            action: nil, keyEquivalent: "")
+        state.isEnabled = false
+        menu.addItem(state)
+        menu.addItem(.separator())
+
         let toggle = NSMenuItem(title: snowing ? "Stop Snow" : "Start Snow",
                                 action: #selector(toggleSnow), keyEquivalent: "s")
         toggle.target = self
@@ -254,6 +277,13 @@ final class SnowController: NSObject, NSApplicationDelegate {
             mi.state = (level == intensity) ? .on : .off
             menu.addItem(mi)
         }
+
+        menu.addItem(.separator())
+        let ease = NSMenuItem(title: "Ease Off on Battery",
+                              action: #selector(toggleEaseOff), keyEquivalent: "b")
+        ease.target = self
+        ease.state = easeOffOnBattery ? .on : .off
+        menu.addItem(ease)
 
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Snowfall", action: #selector(quit), keyEquivalent: "q")
@@ -271,8 +301,14 @@ final class SnowController: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func toggleEaseOff() {
+        setEaseOffOnBattery(!easeOffOnBattery)
+        Defaults.easeOffOnBattery = easeOffOnBattery
+    }
+
     @objc private func setIntensity(_ sender: NSMenuItem) {
         intensity = sender.tag
+        Defaults.intensity = intensity
         overlays.forEach { $0.push(intensity: intensity, powerSaver: powerSaving) }
         refreshMenu()
     }
