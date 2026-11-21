@@ -81,9 +81,22 @@
   // Wind wanders slowly, so the fall never looks like it is on rails.
   let wind = 0, windGoal = rand(-22, 22), windTimer = 0;
 
+  // Rendering budget. Snow does not need 60 or 120 Hz: at 30 fps the fall looks the
+  // same and the GPU does half the work. The loop is driven by a timer that then asks
+  // for one frame, so the process wakes ~30 times a second instead of once per display
+  // refresh only to throw most of those frames away.
+  const FPS_NORMAL = 30;
+  let fps = FPS_NORMAL;
+  let frameInterval = 1000 / fps;
+  let timer = 0, raf = 0;
   let last = performance.now();
+
+  function schedule() {
+    timer = setTimeout(() => { raf = requestAnimationFrame(frame); }, frameInterval);
+  }
+
   function frame(now) {
-    const dt = Math.min((now - last) / 1000, 0.05);
+    const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
 
     windTimer -= dt;
@@ -108,9 +121,9 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    requestAnimationFrame(frame);
+    schedule();
   }
-  requestAnimationFrame(frame);
+  schedule();
 
   // Called from the browser (keys 1/2/3) and from the macOS app's menu bar.
   window.setIntensity = (level) => {
