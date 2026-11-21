@@ -20,7 +20,16 @@ final class SnowOverlay {
     init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool) {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
+        // An overlay that renders one local page needs none of the heavier WebKit
+        // machinery: no cache or cookie writes to disk, no media, no fullscreen.
+        config.websiteDataStore = .nonPersistent()
+        config.mediaTypesRequiringUserActionForPlayback = .all
+        if #available(macOS 13.3, *) { config.preferences.isElementFullscreenEnabled = false }
+
         web = WKWebView(frame: .zero, configuration: config)
+        web.allowsBackForwardNavigationGestures = false
+        web.allowsMagnification = false
+        web.allowsLinkPreview = false
 
         window = NSWindow(contentRect: screen.frame,
                           styleMask: [.borderless],
