@@ -181,7 +181,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
         applyPowerState()
     }
 
-    private func runningOnBattery() -> Bool {
+    func runningOnBattery() -> Bool {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let type = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue()
         else { return false }
@@ -265,9 +265,12 @@ final class SnowController: NSObject, NSApplicationDelegate {
         guard let menu = status?.menu else { return }
         menu.removeAllItems()
 
-        let state = NSMenuItem(
-            title: powerSaving ? "Easing off — on battery" : "Full snow — plugged in",
-            action: nil, keyEquivalent: "")
+        let description: String
+        if powerSaving { description = "Easing off — saving power" }
+        else if runningOnBattery() { description = "Full snow — on battery" }
+        else { description = "Full snow — plugged in" }
+
+        let state = NSMenuItem(title: description, action: nil, keyEquivalent: "")
         state.isEnabled = false
         menu.addItem(state)
         menu.addItem(.separator())
