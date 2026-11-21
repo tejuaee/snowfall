@@ -34,6 +34,7 @@
 
   let w = 0, h = 0, dpr = 1;
   let powerSaver = false;
+  let paused = false;
 
   // Backing-store pixels are the biggest single GPU cost here. Small white dots do not
   // need the full Retina scale, so cap at 1.5x, or 1x while saving power: on a 5K
@@ -79,7 +80,7 @@
   const rand = (a, b) => a + Math.random() * (b - a);
 
   function targetCount() {
-    return Math.round((w * h) / 9000 * intensity);
+    return Math.round((w * h) / 9000 * intensity * (powerSaver ? 0.55 : 1));
   }
 
   function makeFlake(seeded) {
@@ -119,6 +120,7 @@
   let last = performance.now();
 
   function schedule() {
+    if (paused) return;
     timer = setTimeout(() => { raf = requestAnimationFrame(frame); }, frameInterval);
   }
 
@@ -162,6 +164,36 @@
     schedule();
   }
   schedule();
+
+  // While the overlay is hidden, the display is asleep or the Mac is locked there is
+  // nothing to draw: the app calls setPaused(true) and the loop stops dead instead of
+  // animating snow nobody can see.
+  window.setPaused = (p) => {
+    p = !!p;
+    if (p === paused) return;
+    paused = p;
+    if (paused) {
+      clearTimeout(timer);
+      cancelAnimationFrame(raf);
+    } else {
+      last = performance.now();
+      schedule();
+    }
+  };
+  document.addEventListener("visibilitychange", () => window.setPaused(document.hidden));
+
+  // Called when the Mac moves to battery or Low Power Mode: fewer flakes, fewer
+  // frames, fewer pixels. It is still visibly snowing.
+  const FPS_SAVER = 20;
+  window.setPowerSaver = (on) => {
+    on = !!on;
+    if (on === powerSaver) return;
+    powerSaver = on;
+    fps = powerSaver ? FPS_SAVER : FPS_NORMAL;
+    frameInterval = 1000 / fps;
+    resize();
+    sync(false);
+  };
 
   // Called from the browser (keys 1/2/3) and from the macOS app's menu bar.
   window.setIntensity = (level) => {
