@@ -48,17 +48,22 @@
 
   <div class="card">
     <div class="control">
-      <div class="row"><label for="fill">Snow settles</label></div>
-      <select id="fill">
-        <option value="0">Never — nothing piles up</option>
-        <option value="5">A full drift in 5 minutes</option>
-        <option value="15">A full drift in 15 minutes</option>
-        <option value="60">A full drift in an hour</option>
-        <option value="240">A full drift in 4 hours</option>
-        <option value="720">A full drift in 12 hours</option>
+      <div class="row"><label for="settle">Snow lies on the ground</label></div>
+      <select id="settle">
+        <option value="1">Yes — it piles up</option>
+        <option value="0">No — it disappears at the bottom</option>
       </select>
-      <p class="note">A full drift is the bottom quarter of the screen. The engine counts
-        the flakes actually landing and paces itself to hit the time you pick.</p>
+      <p class="note">How fast it builds is how hard it is snowing: set that with
+        Light, Medium or Blizzard in the ❄ menu. A blizzard buries the screen in a
+        couple of hours; Light takes all night.</p>
+    </div>
+
+    <div class="control">
+      <div class="row"><label for="depth">Deepest it gets</label>
+        <span class="value" id="depthValue"></span></div>
+      <input type="range" id="depth" min="5" max="100" step="5">
+      <p class="note">A share of the whole screen. At 100% the snow is allowed to cover
+        everything.</p>
     </div>
   </div>
 
@@ -66,21 +71,21 @@
     <div class="control">
       <div class="row"><label for="auto">Plough by itself</label>
         <span class="value" id="autoValue"></span></div>
-      <input type="range" id="auto" min="0" max="200" step="10">
-      <p class="note">Sends the truck out once the drift gets that deep. All the way left
+      <input type="range" id="auto" min="0" max="100" step="5">
+      <p class="note">Sends the truck out once the snow is that deep. All the way left
         means only when you ask.</p>
     </div>
 
     <div class="control">
-      <div class="row"><label for="speed">Plough speed</label>
-        <span class="value" id="speedValue"></span></div>
-      <input type="range" id="speed" min="80" max="600" step="10">
+      <div class="row"><label for="cross">Plough speed</label>
+        <span class="value" id="crossValue"></span></div>
+      <input type="range" id="cross" min="2" max="20" step="1">
     </div>
 
     <div class="control">
-      <div class="row"><label for="scale">Truck size</label>
-        <span class="value" id="scaleValue"></span></div>
-      <input type="range" id="scale" min="0.6" max="2" step="0.1">
+      <div class="row"><label for="size">Truck size</label>
+        <span class="value" id="sizeValue"></span></div>
+      <input type="range" id="size" min="3" max="15" step="0.5">
     </div>
 
     <div class="control">
@@ -105,32 +110,39 @@
     && window.webkit.messageHandlers.snowfall;
   const send = (msg) => { if (bridge) bridge.postMessage(msg); };
 
-  const fill = document.getElementById("fill");
+  const settle = document.getElementById("settle");
+  const depth = document.getElementById("depth");
   const auto = document.getElementById("auto");
-  const speed = document.getElementById("speed");
-  const scale = document.getElementById("scale");
+  const cross = document.getElementById("cross");
+  const size = document.getElementById("size");
   const dir = document.getElementById("dir");
 
   function labels() {
+    document.getElementById("depthValue").textContent = `${depth.value}% of the screen`;
     document.getElementById("autoValue").textContent =
-      Number(auto.value) === 0 ? "only when asked" : `at ${auto.value} px deep`;
-    document.getElementById("speedValue").textContent = `${speed.value} px/s`;
-    document.getElementById("scaleValue").textContent =
-      `${Number(scale.value).toFixed(1)}×`;
+      Number(auto.value) === 0 ? "only when asked" : `at ${auto.value}% deep`;
+    document.getElementById("crossValue").textContent =
+      `crosses in ${cross.value}s`;
+    document.getElementById("sizeValue").textContent =
+      `${Number(size.value).toFixed(1)}% of the screen`;
   }
 
   function collect() {
     return {
-      fillMinutes: Number(fill.value),
-      autoPlowDepth: Number(auto.value),
-      plowSpeed: Number(speed.value),
-      plowScale: Number(scale.value),
+      settle: settle.value === "1",
+      maxDepthPercent: Number(depth.value),
+      autoPlowPercent: Number(auto.value),
+      plowCrossSeconds: Number(cross.value),
+      truckPercent: Number(size.value),
       plowDirection: Math.round(Number(dir.value))
     };
   }
 
-  for (const el of [fill, auto, speed, scale, dir]) {
-    el.addEventListener("input", () => { labels(); send({ type: "settings", settings: collect() }); });
+  for (const el of [settle, depth, auto, cross, size, dir]) {
+    el.addEventListener("input", () => {
+      labels();
+      send({ type: "settings", settings: collect() });
+    });
   }
   document.getElementById("plow").addEventListener("click", () => send({ type: "plow" }));
   document.getElementById("clear").addEventListener("click", () => send({ type: "clear" }));
@@ -138,10 +150,11 @@
   // The app hands the stored settings in once the page is up.
   window.loadSettings = (s) => {
     if (!s) return;
-    fill.value = String(s.fillMinutes ?? 60);
-    auto.value = String(s.autoPlowDepth ?? 0);
-    speed.value = String(s.plowSpeed ?? 260);
-    scale.value = String(s.plowScale ?? 1);
+    settle.value = s.settle === false ? "0" : "1";
+    depth.value = String(s.maxDepthPercent ?? 100);
+    auto.value = String(s.autoPlowPercent ?? 0);
+    cross.value = String(s.plowCrossSeconds ?? 7);
+    size.value = String(s.truckPercent ?? 7);
     dir.value = String(s.plowDirection ?? 0);
     labels();
   };

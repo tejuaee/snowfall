@@ -120,11 +120,12 @@ private extension URL {
 // MARK: - Settings
 
 struct SnowSettings: Codable, Equatable {
-    var fillMinutes: Double = 60      // how long a full drift takes; 0 = never settles
-    var plowSpeed: Double = 260       // px per second
-    var plowScale: Double = 1
-    var autoPlowDepth: Double = 0     // 0 = only when you ask for it
-    var plowDirection: Int = 0        // 0 alternates, ±1 always from that side
+    var settle: Bool = true             // whether snow lies at all
+    var maxDepthPercent: Double = 100   // how much of the screen it may bury
+    var autoPlowPercent: Double = 0     // plough itself at this depth; 0 = only on demand
+    var plowCrossSeconds: Double = 7    // how long the truck takes to cross the screen
+    var truckPercent: Double = 7        // truck height as a share of the screen
+    var plowDirection: Int = 0          // 0 alternates, ±1 always from that side
 
     var json: String {
         guard let data = try? JSONEncoder().encode(self),
