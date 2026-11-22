@@ -249,16 +249,71 @@
       pile[i] = crust;
     }
 
-    // Spill the bank just ahead of the blade, where the angle of repose spreads it.
-    const ahead = Math.floor((front + p.dir * 10) / COL_W);
-    if (ahead >= 0 && ahead < pile.length) {
-      const dump = Math.min(p.carry, p.carry * Math.min(1, dt * 7) + 30 * dt);
-      pile[ahead] += dump;
-      p.carry -= dump;
+    // Roll the load along in front of the blade. A plough pushes a long low bank, so
+    // the snow goes down across the whole width of it and is capped at about blade
+    // height; whatever will not fit is thrown clear rather than stacked into a tower.
+    const cap = 26 * p.scale;
+    const cols = Math.max(2, Math.round((86 * p.scale) / COL_W));
+    const start = p.x + p.dir * 30 * p.scale;
+    const dump = Math.min(p.carry, p.carry * Math.min(1, dt * 9) + 80 * dt);
+    p.carry -= dump;
+
+    let thrown = 0;
+    for (let c = 0; c < cols; c++) {
+      const share = dump / cols;
+      const i = Math.floor((start + p.dir * c * COL_W) / COL_W);
+      if (i < 0 || i >= pile.length) { thrown += share; continue; }
+      const room = Math.max(0, cap - pile[i]);
+      const add = Math.min(share, room);
+      pile[i] += add;
+      thrown += share - add;
     }
+    if (thrown > 0.4) cast(p, thrown);
 
     const off = 160 * p.scale;
     if (p.x < -off || p.x > w + off) plow = null;   // it leaves with the last of the snow
+  }
+
+  // Snow thrown off the blade: real lumps, thrown up and forward, falling under the
+  // same gravity as everything else and gone once they land. This is where the snow the
+  // bank cannot hold actually goes.
+  const spray = [];
+
+  function cast(p, amount) {
+    const lumps = Math.min(5, Math.ceil(amount * 0.5));
+    for (let i = 0; i < lumps && spray.length < 90; i++) {
+      spray.push({
+        x: p.x + p.dir * rand(30, 46) * p.scale,
+        y: h - rand(16, 30) * p.scale,
+        vx: p.dir * rand(60, 190),
+        vy: -rand(140, 300),
+        r: rand(1, 2.8),
+        life: 1
+      });
+    }
+  }
+
+  function updateSpray(dt) {
+    for (let i = spray.length - 1; i >= 0; i--) {
+      const s = spray[i];
+      s.vy += G * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life -= dt * 0.7;
+      if (s.life <= 0 || s.y > h - 1 || s.x < -30 || s.x > w + 30) spray.splice(i, 1);
+    }
+  }
+
+  function drawSpray() {
+    if (!spray.length) return;
+    ctx.fillStyle = "#ffffff";
+    for (const s of spray) {
+      ctx.globalAlpha = Math.min(1, Math.max(0, s.life));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawPlow() {
@@ -444,9 +499,11 @@
     recalibrate(now);
     updatePlow(dt);
     maybeAutoPlow();
+    updateSpray(dt);
     settle(dt);
     drawPile();
     drawPlow();
+    drawSpray();
 
     schedule();
   }
