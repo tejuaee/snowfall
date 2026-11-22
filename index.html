@@ -190,7 +190,9 @@
   // snow is allowed to bury the display completely.
   function applyDepthCap() {
     const percent = Number.isFinite(settings.maxDepthPercent) ? settings.maxDepthPercent : 100;
-    pileCap = h * (Math.max(1, Math.min(100, percent)) / 100);
+    // Capped a little under the full screen on purpose: if the drift reaches the top
+    // there is nowhere left for snow to fall, and it reads as the snow having stopped.
+    pileCap = h * (Math.max(1, Math.min(94, percent)) / 100);
     for (let i = 0; i < pile.length; i++) if (pile[i] > pileCap) pile[i] = pileCap;
   }
 
@@ -686,6 +688,11 @@
       const ball = { x: e.clientX, y: topOf(surface, e.clientX) - 9, r: 9, rot: 0,
                      vx: 0, vy: 0, held: true, resting: false };
       balls.push(ball);
+      while (balls.length > 40) {
+        const oldest = balls.findIndex((other) => other !== ball && other.resting);
+        if (oldest < 0) break;
+        balls.splice(oldest, 1);
+      }
       grabbed = { mode: "roll", group: [ball], lastX: e.clientX, surface };
     }
     document.body.style.cursor = "grabbing";
@@ -1087,7 +1094,24 @@
     if (!paused && performance.now() - lastDraw > 1500) schedule();
   }, 2000);
 
+  // The loop must survive anything that happens inside a frame. Before this, schedule()
+  // was the last statement of the frame, so a single thrown error — a bad number
+  // reaching a gradient, say — ended the snow for good.
+  let errorCount = 0;
+  let lastError = null;
+
   function frame(now) {
+    try {
+      drawFrame(now);
+    } catch (err) {
+      errorCount++;
+      lastError = String((err && err.message) || err);
+    } finally {
+      schedule();
+    }
+  }
+
+  function drawFrame(now) {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     lastDraw = now;
@@ -1180,8 +1204,6 @@
     drawPlow();
     drawSparkles();
     drawSpray();
-
-    schedule();
   }
   schedule();
 
@@ -1241,7 +1263,13 @@
   };
 
   // For ci/check-page.swift: enough to tell whether the engine is alive.
-  window.__snowState = () => ({ flakes: flakes.length, frames: framesDrawn });
+  window.__snowState = () => ({
+    flakes: flakes.length,
+    frames: framesDrawn,
+    paused,
+    errors: errorCount,
+    lastError
+  });
 
   window.clearPile = () => {
     pile.fill(0);
