@@ -80,7 +80,8 @@ Two consequences:
 | `settings.html` | The settings window: depth, auto-plough, speed, size, direction, buttons. |
 | `Saver.swift` | `Snowfall.saver`: the same snow as a `ScreenSaverView`, drawn natively with Core Graphics, for the idle and lock screen. |
 | `install-saver.sh` | Builds the saver bundle and installs it to `~/Library/Screen Savers`. |
-| `ci/check.sh` | Pre-push check: builds both, parses the engine, verifies the page hooks, loads the saver and asserts it draws. |
+| `ci/check.sh` | Pre-push check: builds both, parses the engine, verifies the page hooks, starts the page in WebKit, loads the saver and asserts it draws. |
+| `ci/check-page.swift` | Loads the page in a real WebKit view and asks the engine for its state. |
 
 Flakes fall under gravity against air resistance — `v' = g − (g/terminal²)·v²` — so they
 accelerate out of the sky and level off at a terminal velocity that depends on their size,
@@ -167,6 +168,29 @@ you. Let it go from high enough and it lands harder than packed snow can survive
 bursts back into a mound on the ground.
 
 The plough takes any snowman standing in its way.
+
+## Staying up
+
+It is meant to run for days, so the failures that matter are the quiet ones.
+
+- **The render loop cannot be killed by a bad frame.** Scheduling the next frame used
+  to be the last statement of the current one, so a single thrown error stopped the
+  snow for good. The frame is wrapped: it always reschedules, and counts what went
+  wrong.
+- **A dead page comes back.** WebKit runs the page in its own process and the system
+  may reclaim it during a long session; the overlay is its own navigation delegate,
+  reloads when that happens, and the app restores the settings, the drift, the ledges
+  and the mode. Verified by killing the process out from under a running overlay.
+- **Pause state is checked, not assumed.** Sleep, lock and occlusion used to be tracked
+  purely from notifications, so one missed message left the snow paused forever. Every
+  twenty seconds the app asks the system whether the screen really is locked or asleep,
+  re-checks occlusion, and asks each page how many frames it has drawn — reloading any
+  page that has stopped drawing when it should not have.
+- **Waking up keeps the drift.** A display change rebuilds the overlays, so the height
+  map is saved before that happens rather than lost.
+- Nothing accumulates without a limit: flakes are recycled rather than created,
+  snowballs stop at forty, spray and sparkle are capped, and ledges are dropped with
+  their windows.
 
 ## Battery
 
