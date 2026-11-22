@@ -353,6 +353,10 @@
     let on = null;
     for (const other of balls) {
       if (other === b || other.held || !other.resting) continue;
+      // Only something underneath can hold a ball up. Without this test the lower ball
+      // of a stack treats the one above it as a surface, climbs onto it, and the pair
+      // leapfrog each other off the top of the screen.
+      if (other.y <= b.y) continue;
       if (Math.abs(other.x - b.x) < other.r * 0.95) {
         const top = other.y - other.r;
         if (top < surface) { surface = top; on = other; }
@@ -554,6 +558,7 @@
 
   window.addEventListener("mousemove", (e) => {
     if (!grabbed) return;
+    if (e.buttons === 0) { releaseGrab(); return; }   // a mouseup we never heard about
 
     if (grabbed.mode === "carry") {
       grabbed.group.forEach((b, i) => {
@@ -572,6 +577,14 @@
 
   window.addEventListener("mouseup", releaseGrab);
   window.addEventListener("blur", releaseGrab);   // focus lost mid-drag
+
+  // A double click is a second way out, for when the menu is awkward to reach.
+  canvas.addEventListener("dblclick", () => {
+    if (!interactive) return;
+    const b = bridge();
+    if (b) b.postMessage({ type: "exitSnowball" });
+    window.setInteractive(false);
+  });
 
   // Escape is the way out of a mode that is swallowing every click.
   // In a browser there is no mode to switch: the demo is always playable.

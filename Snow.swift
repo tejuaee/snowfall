@@ -99,8 +99,9 @@ final class SnowOverlay {
     /// Snowball Mode is the one time the overlay stops being click-through. While it is
     /// listening for the mouse it must also stop covering the menu bar, or the ❄ menu
     /// itself becomes unclickable.
-    func setInteractive(_ on: Bool) {
+    func setInteractive(_ on: Bool, level: NSWindow.Level) {
         window.ignoresMouseEvents = !on
+        window.level = level
 
         let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
         window.setFrame(on ? NSRect(x: screen.frame.minX, y: screen.frame.minY,
@@ -110,7 +111,10 @@ final class SnowOverlay {
                         display: true)
 
         run("window.setInteractive && window.setInteractive(\(on));")
-        if on { window.makeKeyAndOrderFront(nil) }
+        if on {
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(web)     // or key presses never reach the page
+        }
     }
 
     func readPile(_ done: @escaping (String?) -> Void) {
@@ -290,7 +294,7 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
                                         handler: self))
         }
         overlays.forEach { $0.apply(settings, delay: 0.4) }
-        if snowballMode { overlays.forEach { $0.setInteractive(true) } }
+        if snowballMode { overlays.forEach { $0.setInteractive(true, level: overlayLevel) } }
 
         // A drift is hours of work. Put back whatever was on the ground last time.
         for (index, overlay) in overlays.enumerated() {
@@ -434,10 +438,19 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: check)
     }
 
+    /// Above every window, but in Snowball Mode below menus — otherwise the ❄ menu
+    /// opens underneath an overlay that is busy swallowing clicks, and the only way out
+    /// of the mode cannot be clicked.
+    private var overlayLevel: NSWindow.Level {
+        let key: CGWindowLevelKey = snowballMode ? .popUpMenuWindow : .screenSaverWindow
+        let raw = Int(CGWindowLevelForKey(key)) - (snowballMode ? 1 : 0)
+        return NSWindow.Level(rawValue: raw)
+    }
+
     /// Switching app or Space can leave the overlay ordered behind what you switched
     /// to, which looks like the snow disappearing. Re-assert the level and the order.
     @objc private func keepOnTop() {
-        let top = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)))
+        let top = overlayLevel
         for overlay in overlays {
             overlay.window.level = top
             overlay.window.orderFrontRegardless()
@@ -633,7 +646,7 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
     /// also the danger, so it is announced in the menu and Escape turns it off.
     @objc private func toggleSnowballs() {
         snowballMode.toggle()
-        overlays.forEach { $0.setInteractive(snowballMode) }
+        overlays.forEach { $0.setInteractive(snowballMode, level: overlayLevel) }
         // Activating is what gets key presses — Escape — to the overlay. Deactivating
         // hands focus back; hiding would have taken the snow with it.
         if snowballMode { NSApp.activate(ignoringOtherApps: true) } else { NSApp.deactivate() }
@@ -646,7 +659,7 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         if body["type"] as? String == "exitSnowball" {
             guard snowballMode else { return }
             snowballMode = false
-            overlays.forEach { $0.setInteractive(false) }
+            overlays.forEach { $0.setInteractive(false, level: overlayLevel) }
             refreshMenu()
             return
         }
