@@ -11,6 +11,29 @@
      The macOS overlay loads index.html?overlay=1 and stays fully transparent. */
   body.demo { background: radial-gradient(120% 90% at 50% 0%, #1b2a4a 0%, #0a0f1c 60%, #05070d 100%); }
   canvas { display: block; width: 100vw; height: 100vh; }
+  .mode {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 10px 9px 16px; border-radius: 999px;
+    background: rgba(16, 22, 34, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+    color: #eaf1ff; font: 13px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    white-space: nowrap;
+  }
+  .mode[hidden] { display: none; }
+  .mode strong { font-weight: 650; }
+  .mode button {
+    font: inherit; font-weight: 600; color: #0e1420; background: #eaf1ff;
+    border: 0; border-radius: 999px; padding: 7px 14px; cursor: pointer;
+  }
+  .mode button:hover { background: #ffffff; }
+  .mode button:focus-visible { outline: 2px solid #8fb6ff; outline-offset: 2px; }
+  @media (prefers-reduced-transparency: reduce) {
+    .mode { background: #101622; backdrop-filter: none; }
+  }
+
   .hint {
     position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
     font: 500 13px/1.5 ui-sans-serif, -apple-system, system-ui, sans-serif;
@@ -22,6 +45,10 @@
 </head>
 <body>
 <canvas id="sky"></canvas>
+<div id="mode" class="mode" role="status" aria-live="polite" hidden>
+  <span><strong>Snowball Mode</strong> · drag the snow to roll a ball · stack two for a snowman</span>
+  <button id="leave" type="button">Leave</button>
+</div>
 <p class="hint">1 / 2 / 3 changes how hard it snows &nbsp;·&nbsp; P sends the plough
   &nbsp;·&nbsp; drag the snow to roll a snowball</p>
 <script>
@@ -294,8 +321,21 @@
   const bridge = () => window.webkit && window.webkit.messageHandlers
     && window.webkit.messageHandlers.snowfall;
 
+  const banner = document.getElementById("mode");
+
+  function leaveSnowballMode() {
+    const b = bridge();
+    if (b) b.postMessage({ type: "exitSnowball" });
+    window.setInteractive(false);
+  }
+
+  document.getElementById("leave").addEventListener("click", leaveSnowballMode);
+
   window.setInteractive = (on) => {
     interactive = !!on;
+    // Say so on screen. A mode that silently swallows every click has to announce
+    // itself, and offer a way out that is not a hunt through the menu bar.
+    if (banner) banner.hidden = !interactive || !bridge();
     if (!interactive) releaseGrab();   // never leave a ball stranded in mid-air
     document.body.style.cursor = interactive ? "grab" : "default";
   };
@@ -621,10 +661,7 @@
 
   // A double click is a second way out, for when the menu is awkward to reach.
   canvas.addEventListener("dblclick", () => {
-    if (!interactive) return;
-    const b = bridge();
-    if (b) b.postMessage({ type: "exitSnowball" });
-    window.setInteractive(false);
+    if (interactive) leaveSnowballMode();
   });
 
   // Escape is the way out of a mode that is swallowing every click.
@@ -632,11 +669,7 @@
   if (!overlay) window.setInteractive(true);
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && interactive) {
-      const b = bridge();
-      if (b) b.postMessage({ type: "exitSnowball" });
-      window.setInteractive(false);
-    }
+    if (e.key === "Escape" && interactive) leaveSnowballMode();
   });
 
   // ---- the plough ---------------------------------------------------------
