@@ -32,6 +32,23 @@
   const canvas = document.getElementById("sky");
   const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
 
+  // Snow that has landed, as a height in pixels every COL_W across the screen. This is
+  // deliberately slow: at the default rate a Medium snowfall lays down roughly 15px an
+  // hour, so a proper drift along the bottom of the screen is an evening's work.
+  const COL_W = 4;
+  const MAX_SLOPE = 1.6;        // px of difference neighbouring columns tolerate
+  let pile = new Float32Array(0);
+  let pileCap = 0;
+
+  // Everything the native side (or the settings window) is allowed to change.
+  const settings = {
+    pileRate: 0.35,      // px of depth per landed flake
+    plowSpeed: 260,      // px per second
+    plowScale: 1,
+    autoPlowDepth: 0,    // 0 = never plough on its own
+    plowDirection: 0     // 0 alternate, 1 left to right, -1 right to left
+  };
+
   let w = 0, h = 0, dpr = 1;
   let powerSaver = false;
   let paused = false;
@@ -51,6 +68,7 @@
     canvas.width = cw;
     canvas.height = ch;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // a resize clears the canvas and its transform
+    rebuildPile();
     return true;
   }
 
@@ -105,6 +123,62 @@
     if (flakes.length > want) flakes.length = want;
   }
   sync(true);
+
+  // ---- snow on the ground -------------------------------------------------
+
+  // Keeps whatever has already settled when the screen changes size, by resampling the
+  // old heights across the new column count rather than throwing away the drift.
+  function rebuildPile() {
+    const n = Math.max(1, Math.ceil(w / COL_W));
+    const next = new Float32Array(n);
+    if (pile.length) {
+      for (let i = 0; i < n; i++) {
+        next[i] = pile[Math.min(pile.length - 1, Math.floor(i * pile.length / n))];
+      }
+    }
+    pile = next;
+    pileCap = h * 0.28;          // never swallow more than the bottom quarter
+  }
+
+  function column(x) {
+    if (x < 0) return 0;
+    if (x >= w) return pile.length - 1;
+    return (x / COL_W) | 0;
+  }
+
+  function land(ci, depth) {
+    if (pile[ci] < pileCap) pile[ci] += settings.pileRate * (0.45 + depth);
+  }
+
+  // Snow does not stand in towers: anything steeper than MAX_SLOPE slumps onto its
+  // neighbour, which is also what spreads out the ridge a plough leaves behind.
+  function settle(dt) {
+    const give = Math.min(1, dt * 9) * 0.25;
+    for (let i = 0; i < pile.length - 1; i++) {
+      const d = pile[i] - pile[i + 1];
+      if (d > MAX_SLOPE) {
+        const move = (d - MAX_SLOPE) * give;
+        pile[i] -= move; pile[i + 1] += move;
+      } else if (d < -MAX_SLOPE) {
+        const move = (-d - MAX_SLOPE) * give;
+        pile[i] += move; pile[i + 1] -= move;
+      }
+    }
+  }
+
+  function drawPile() {
+    if (!pile.length) return;
+    ctx.globalAlpha = 0.96;
+    ctx.fillStyle = "#f2f6ff";
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let i = 0; i < pile.length; i++) ctx.lineTo(i * COL_W, h - pile[i]);
+    ctx.lineTo(w, h - pile[pile.length - 1]);
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   // Wind wanders slowly, so the fall never looks like it is on rails.
   let wind = 0, windGoal = rand(-22, 22), windTimer = 0;
@@ -170,7 +244,13 @@
       f.y += f.vy * dt;
       f.x += (wind * (0.3 + f.depth) + Math.sin(f.phase) * f.sway) * dt;
 
-      if (f.y - f.r > h) { Object.assign(f, makeFlake(false)); continue; }
+      // Landing on the drift rather than on the bottom of the screen.
+      const ci = column(f.x);
+      if (f.y + f.r >= h - pile[ci]) {
+        land(ci, f.depth);
+        Object.assign(f, makeFlake(false));
+        continue;
+      }
       if (f.x < -60) f.x = w + 50;
       else if (f.x > w + 60) f.x = -50;
 
@@ -189,6 +269,10 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    settle(dt);
+    drawPile();
+
     schedule();
   }
   schedule();
