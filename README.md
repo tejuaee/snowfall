@@ -20,6 +20,7 @@ A ❄ appears in the menu bar:
 - **Stop / Start Snow**
 - **Light · Medium · Blizzard** — how hard it comes down
 - **Send the Plough** · **Clear the Snow** · **Snow Settings…**
+- **Snowball Mode** — roll snowballs and build snowmen (Escape to leave)
 - **Ease Off on Battery** — on by default, see below
 - **Quit Snowfall**
 
@@ -108,6 +109,31 @@ window, or press **P** on the web demo.
 
 The drift is written to disk every minute and restored per screen when the app starts, so
 an evening of snow survives a quit or a reboot.
+
+## Snow on your windows
+
+Snow does not only land on the desktop: the top edge of every window is a ledge it can
+lie on, so a Safari window picks up a white line along its title bar that thickens as the
+night goes on. The height map is keyed to the window, not to a position, so the snow
+**rides along when you drag the window**, and an edge covered by a window in front of it
+collects nothing.
+
+Window geometry comes from `CGWindowList`, which needs no permission — only window
+*titles* are privileged, and Snowfall never asks for them. The list is refreshed twice a
+second.
+
+## Snowballs and snowmen
+
+❄ menu → **Snowball Mode**. Click the snow and drag sideways: the ball picks up the depth
+it sweeps, growing by the area it takes and leaving a clean track behind it. Let go and it
+rests where it lands — or on top of the ball below it. Stack two and the top one gets coal
+eyes, a carrot and a smile, and the one underneath gets buttons. Grab a ball again to pick
+it up and move it.
+
+The overlay has to stop being click-through to hear a mouse at all, so while this mode is
+on it swallows every click on your desktop. **Escape** leaves it, as does the menu item.
+
+The plough takes any snowman standing in its way.
 
 ## Battery
 
