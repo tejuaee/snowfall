@@ -79,6 +79,16 @@ final class SnowOverlay {
     }
 
     func sendPlow() { run("window.sendPlow && window.sendPlow();") }
+
+    func readPile(_ done: @escaping (String?) -> Void) {
+        web.evaluateJavaScript("JSON.stringify(window.getPile ? window.getPile() : [])") {
+            value, _ in done(value as? String)
+        }
+    }
+
+    func restorePile(_ json: String, delay: TimeInterval = 0.45) {
+        run("window.setPile && window.setPile(\(json));", delay: delay)
+    }
     func clearPile() { run("window.clearPile && window.clearPile();") }
 
     func setPaused(_ paused: Bool) {
@@ -220,6 +230,12 @@ final class SnowController: NSObject, NSApplicationDelegate {
         startSnowing()
         observeVisibility()
         observePower()
+
+        // Keep the drift on disk so quitting, or a reboot, does not undo an evening of
+        // snow. Every minute is often enough for something that accumulates this slowly.
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.savePiles()
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -233,6 +249,14 @@ final class SnowController: NSObject, NSApplicationDelegate {
                                         intensity: intensity, powerSaver: powerSaving))
         }
         overlays.forEach { $0.apply(settings, delay: 0.4) }
+
+        // A drift is hours of work. Put back whatever was on the ground last time.
+        for (index, overlay) in overlays.enumerated() {
+            if let stored = UserDefaults.standard.string(forKey: "pile.\(index)") {
+                overlay.restorePile(stored)
+            }
+        }
+
         snowing = true
         refreshMenu()
     }
@@ -458,6 +482,15 @@ final class SnowController: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func savePiles() {
+        for (index, overlay) in overlays.enumerated() {
+            overlay.readPile { json in
+                guard let json, json.count > 2 else { return }
+                UserDefaults.standard.set(json, forKey: "pile.\(index)")
+            }
+        }
+    }
+
     @objc private func sendPlow() { overlays.forEach { $0.sendPlow() } }
     @objc private func clearSnow() { overlays.forEach { $0.clearPile() } }
 
@@ -503,8 +536,13 @@ final class SnowController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
-        tearDownWindows()
-        NSApp.terminate(nil)
+        savePiles()
+        // Reading the drift out of the page is asynchronous, so give it a moment to
+        // land on disk before the process goes away.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.tearDownWindows()
+            NSApp.terminate(nil)
+        }
     }
 }
 
