@@ -290,7 +290,10 @@
 
   window.setInteractive = (on) => {
     interactive = !!on;
-    if (!interactive) grabbed = null;
+    if (!interactive && grabbed) {
+      for (const b of grabbed.group) { b.held = false; b.resting = false; }
+      grabbed = null;                 // never leave a ball stranded in mid-air
+    }
     document.body.style.cursor = interactive ? "grab" : "default";
   };
 
@@ -401,6 +404,27 @@
     }
   }
 
+  // A snowman is a stack, and a stack moves as one piece: take hold of any part of it
+  // and the rest comes too.
+  function stackOf(ball) {
+    const group = new Set([ball]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const candidate of balls) {
+        if (group.has(candidate)) continue;
+        for (const member of group) {
+          const aligned =
+            Math.abs(candidate.x - member.x) < Math.max(candidate.r, member.r) * 0.85;
+          const touching =
+            Math.abs(Math.abs(candidate.y - member.y) - (candidate.r + member.r)) < 10;
+          if (aligned && touching) { group.add(candidate); added = true; break; }
+        }
+      }
+    }
+    return [...group];
+  }
+
   function stackUnder(b) {
     let count = 1, current = b, guard = 0;
     while (guard++ < 8) {
@@ -479,27 +503,45 @@
 
   canvas.addEventListener("mousedown", (e) => {
     if (!interactive) return;
-    const held = ballAt(e.clientX, e.clientY);
-    if (held) {
-      held.resting = false;
-      held.held = true;
-      grabbed = { ball: held, mode: "carry" };
+    const hit = ballAt(e.clientX, e.clientY);
+
+    if (hit) {
+      const group = stackOf(hit);
+      for (const b of group) { b.held = true; b.resting = false; b.vx = 0; b.vy = 0; }
+      grabbed = {
+        mode: "carry",
+        group,
+        offsets: group.map((b) => ({ dx: b.x - e.clientX, dy: b.y - e.clientY })),
+        lastX: e.clientX, lastY: e.clientY, lastT: performance.now(), vx: 0, vy: 0
+      };
     } else {
       const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0,
                      vx: 0, vy: 0, held: true, resting: false };
       balls.push(ball);
-      grabbed = { ball, mode: "roll", lastX: e.clientX };
+      grabbed = { mode: "roll", group: [ball], lastX: e.clientX };
     }
     document.body.style.cursor = "grabbing";
   });
 
   window.addEventListener("mousemove", (e) => {
     if (!grabbed) return;
-    const b = grabbed.ball;
+
     if (grabbed.mode === "carry") {
-      b.x = e.clientX;
-      b.y = e.clientY;
+      // Track how fast you are moving, so letting go while swinging throws it.
+      const now = performance.now();
+      const dt = Math.max(8, now - grabbed.lastT) / 1000;
+      grabbed.vx = (e.clientX - grabbed.lastX) / dt;
+      grabbed.vy = (e.clientY - grabbed.lastY) / dt;
+      grabbed.lastX = e.clientX;
+      grabbed.lastY = e.clientY;
+      grabbed.lastT = now;
+
+      grabbed.group.forEach((b, i) => {
+        b.x = e.clientX + grabbed.offsets[i].dx;
+        b.y = e.clientY + grabbed.offsets[i].dy;
+      });
     } else {
+      const b = grabbed.group[0];
       rollThrough(b, e.clientX - grabbed.lastX);
       grabbed.lastX = e.clientX;
       b.x = e.clientX;
@@ -509,9 +551,16 @@
 
   window.addEventListener("mouseup", () => {
     if (!grabbed) return;
-    const b = grabbed.ball;
-    b.held = false;
-    b.resting = false;        // let it fall from wherever you let go of it
+    const carried = grabbed.mode === "carry";
+    const vx = Math.max(-700, Math.min(700, (grabbed.vx || 0) * 0.4));
+    const vy = Math.max(-700, Math.min(700, (grabbed.vy || 0) * 0.4));
+
+    for (const b of grabbed.group) {
+      b.held = false;
+      b.resting = false;
+      b.vx = carried ? vx : 0;
+      b.vy = carried ? vy : 0;
+    }
     grabbed = null;
     document.body.style.cursor = interactive ? "grab" : "default";
   });
