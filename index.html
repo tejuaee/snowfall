@@ -122,6 +122,7 @@
       sway: rand(10, 34) * (0.4 + depth),
       phase: rand(0, Math.PI * 2),
       spin: rand(0.4, 1.3),
+      crystal: depth > 0.72,          // only the nearest flakes show their arms
       bucket: Math.min(BUCKETS - 1, Math.floor((0.28 + depth * 0.62) * BUCKETS))
     };
   }
@@ -958,10 +959,28 @@
       ctx.globalAlpha = (b + 0.5) / BUCKETS;
       ctx.beginPath();
       for (const f of list) {
+        if (f.crystal) continue;
         ctx.moveTo(f.x + f.r, f.y);   // moveTo first, or arcs chain into one stroke
         ctx.arc(f.x, f.y, f.r, 0, TAU);
       }
       ctx.fill();
+
+      // Close to the glass a flake is not a dot: it is six arms, turning as it falls.
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = Math.max(0.7, 0.4 + b * 0.18);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      for (const f of list) {
+        if (!f.crystal) continue;
+        for (let arm = 0; arm < 3; arm++) {
+          const angle = f.phase * 0.4 + (arm * Math.PI) / 3;
+          const dx = Math.cos(angle) * f.r * 1.45;
+          const dy = Math.sin(angle) * f.r * 1.45;
+          ctx.moveTo(f.x - dx, f.y - dy);
+          ctx.lineTo(f.x + dx, f.y + dy);
+        }
+      }
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
 
