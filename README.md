@@ -118,6 +118,9 @@ night goes on. The height map is keyed to the window, not to a position, so the 
 **rides along when you drag the window**, and an edge covered by a window in front of it
 collects nothing.
 
+Full-screen windows are left alone: they have no visible top edge, so snow lying on one
+would be snow lying on nothing.
+
 Window geometry comes from `CGWindowList`, which needs no permission — only window
 *titles* are privileged, and Snowfall never asks for them. The list is refreshed twice a
 second.
@@ -132,6 +135,14 @@ it up and move it.
 
 The overlay has to stop being click-through to hear a mouse at all, so while this mode is
 on it swallows every click on your desktop. **Escape** leaves it, as does the menu item.
+
+Balls obey the same gravity as the flakes: they fall when you let go rather than appear
+on the ground, and nothing stays in the air — plough the ground out from under a snowman,
+or pick up the ball it was standing on, and what was on top comes down.
+
+A snowman moves as one piece: take hold of any part of it and the whole stack comes with
+you. Let it go from high enough and it lands harder than packed snow can survive, and
+bursts back into a mound on the ground.
 
 The plough takes any snowman standing in its way.
 

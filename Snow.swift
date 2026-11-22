@@ -571,6 +571,14 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
 
                 let x = win.rect.minX - originX
                 let y = top - originY
+
+                // A full-screen window has no top edge you can see, so nothing should
+                // appear to be lying on it. The same goes for anything reaching the
+                // very top of the screen, where the menu bar is.
+                let coversScreen = win.rect.width >= frame.width - 2
+                    && win.rect.height >= frame.height - 2
+                if coversScreen || y <= 2 { continue }
+
                 if y < 0 || y > frame.height || x > frame.width || x + win.rect.width < 0 { continue }
 
                 payload.append([
