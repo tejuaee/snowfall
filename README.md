@@ -19,6 +19,7 @@ A ❄ appears in the menu bar:
 
 - **Stop / Start Snow**
 - **Light · Medium · Blizzard** — how hard it comes down
+- **Send the Plough** · **Clear the Snow** · **Snow Settings…**
 - **Ease Off on Battery** — on by default, see below
 - **Quit Snowfall**
 
@@ -61,15 +62,50 @@ Two consequences:
 | `index.html` | The whole snow engine: a canvas, flakes with depth, sway and wandering wind. Transparent when loaded with `?overlay=1`. |
 | `Snow.swift` | One borderless `NSWindow` per screen at screen-saver level, `ignoresMouseEvents`, joining all Spaces, hosting the page in a transparent `WKWebView`. |
 | `snow.sh` | `start` builds when the source has changed, then runs; `stop` ends it. |
+| `settings.html` | The settings window: drift time, plough speed, size, direction, and the buttons. |
 | `Saver.swift` | `Snowfall.saver`: the same snow as a `ScreenSaverView`, drawn natively with Core Graphics, for the idle and lock screen. |
 | `install-saver.sh` | Builds the saver bundle and installs it to `~/Library/Screen Savers`. |
 | `ci/check.sh` | Pre-push check: builds both, parses the engine, verifies the page hooks, loads the saver and asserts it draws. |
+
+Flakes fall under gravity against air resistance — `v' = g − (g/terminal²)·v²` — so they
+accelerate out of the sky and level off at a terminal velocity that depends on their size,
+and the wind is a force they lag behind rather than a number added to their position.
 
 Each flake gets a random *depth*. Near flakes are bigger, brighter and faster; far ones
 are small and faint, which is what makes the fall read as three-dimensional rather than
 as dots sliding down a pane of glass. A wind value wanders every few seconds so no two
 minutes of snow look alike. Flake count scales with screen area, so a 6K display gets a
 real storm instead of a sprinkle.
+
+## Snow that piles up, and a plough
+
+Flakes land on the ground rather than at the bottom of the screen, and what lands stays:
+a height map across the screen that builds into a drift along the bottom edge, over your
+Dock. It holds a 38° face — snow's actual angle of repose — and anything steeper slumps
+onto its neighbour.
+
+How long a full drift takes is yours to choose, from the ❄ menu → **Snow Settings…**:
+
+| Setting | What it does |
+| --- | --- |
+| **Snow settles** | Never, or a full drift in 5 minutes, 15 minutes, an hour, 4 hours, 12 hours |
+| **Plough by itself** | Sends the truck out once the drift reaches a depth you pick |
+| **Plough speed** | 80–600 px/s |
+| **Truck size** | 0.6× to 2× |
+| **Comes from** | Alternating sides, always the left, or always the right |
+
+"A full drift" is the bottom quarter of the screen. Rather than a fixed depth per flake —
+which would mean something different on every screen and at every intensity — the engine
+counts how many flakes actually land per second and solves for what each one is worth, so
+the time you pick is the time it takes.
+
+The plough scrapes the drift down to a thin crust and **carries what it takes**: the snow
+rides in front of the blade as a bank that grows across the screen, slumping as it goes,
+and leaves with the truck. Send it from the ❄ menu (**Send the Plough**), from the
+settings window, or press **P** on the web demo.
+
+The drift is written to disk every minute and restored per screen when the app starts, so
+an evening of snow survives a quit or a reboot.
 
 ## Battery
 
