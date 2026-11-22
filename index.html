@@ -843,6 +843,35 @@
     ctx.stroke();
   }
 
+  // Light catching a facet here and there, which is what tells you a surface is snow
+  // and not a sheet of paper.
+  const sparkles = [];
+
+  function updateSparkles(dt) {
+    if (pile.length && sparkles.length < 20 && Math.random() < dt * 11) {
+      const i = (Math.random() * pile.length) | 0;
+      if (pile[i] > 2) {
+        sparkles.push({ x: i * COL_W, y: h - pile[i] - 1, r: rand(0.7, 1.7), life: 1 });
+      }
+    }
+    for (let i = sparkles.length - 1; i >= 0; i--) {
+      sparkles[i].life -= dt * 1.5;
+      if (sparkles[i].life <= 0) sparkles.splice(i, 1);
+    }
+  }
+
+  function drawSparkles() {
+    if (!sparkles.length) return;
+    ctx.fillStyle = "#ffffff";
+    for (const s of sparkles) {
+      ctx.globalAlpha = Math.sin(Math.PI * Math.max(0, Math.min(1, s.life))) * 0.9;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawPile() {
     if (!pile.length) return;
     if (!grain) grain = makeGrain();
@@ -987,11 +1016,13 @@
     updatePlow(dt);
     maybeAutoPlow();
     updateSpray(dt);
+    updateSparkles(dt);
     settle(dt);
     updateBalls(dt);
     drawPile();
     drawBalls();
     drawPlow();
+    drawSparkles();
     drawSpray();
 
     schedule();
