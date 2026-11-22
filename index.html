@@ -36,8 +36,12 @@
   // deliberately slow: at the default rate a Medium snowfall lays down roughly 15px an
   // hour, so a proper drift along the bottom of the screen is an evening's work.
   const COL_W = 4;
-  const REPOSE = Math.tan(38 * Math.PI / 180) * 4;   // snow holds a ~38° face
+  const REPOSE = Math.tan(20 * Math.PI / 180) * 4;   // the steepest face a drift keeps
+  // How a landed flake spreads over its neighbours. A flake that lands in one 4px
+  // column builds a spike; spread over five it builds a curve.
+  const DEPOSIT = [0.1, 0.2, 0.4, 0.2, 0.1];
   let pile = new Float32Array(0);
+  let scratch = new Float32Array(0);
   let pileCap = 0;
 
   // Everything the native side (or the settings window) is allowed to change.
@@ -140,6 +144,7 @@
       }
     }
     pile = next;
+    scratch = new Float32Array(n);
     pileCap = h * 0.28;          // never swallow more than the bottom quarter
   }
 
@@ -170,14 +175,35 @@
 
   function land(ci, depth) {
     landings++;
+    if (pile[ci] >= pileCap) return;
     // Weighted so a big near flake counts for more, normalised by the average weight
-    // (0.835) so the weighting does not change how long filling takes.
-    if (pile[ci] < pileCap) pile[ci] += gain * (0.45 + depth) / 0.835;
+    // (0.835) so the weighting does not change how long filling takes. The kernel sums
+    // to 1, so spreading it does not change the total depth laid down either.
+    const amount = gain * (0.45 + depth) / 0.835;
+    for (let k = -2; k <= 2; k++) {
+      const i = ci + k;
+      if (i >= 0 && i < pile.length) pile[i] += amount * DEPOSIT[k + 2];
+    }
   }
 
   // Snow does not stand in towers: anything steeper than REPOSE slumps onto its
   // neighbour, which is also what spreads out the ridge a plough leaves behind.
   function settle(dt) {
+    const n = pile.length;
+    if (n < 3) return;
+
+    // Creep: lying snow slumps gently toward its neighbours. This is what turns a row
+    // of little peaks into the long shallow curves a real drift has. It moves snow
+    // sideways without creating or destroying any, so the fill time stays honest.
+    const k = Math.min(0.24, dt * 7);
+    scratch.set(pile);
+    for (let i = 1; i < n - 1; i++) {
+      pile[i] = scratch[i] + k * (scratch[i - 1] + scratch[i + 1] - 2 * scratch[i]);
+    }
+    pile[0] = scratch[0] + k * (scratch[1] - scratch[0]);
+    pile[n - 1] = scratch[n - 1] + k * (scratch[n - 2] - scratch[n - 1]);
+
+    // Avalanche: anything still steeper than the repose angle lets go.
     const give = Math.min(1, dt * 9) * 0.25;
     for (let i = 0; i < pile.length - 1; i++) {
       const d = pile[i] - pile[i + 1];
@@ -301,7 +327,13 @@
     ctx.fillStyle = "#f2f6ff";
     ctx.beginPath();
     ctx.moveTo(0, h);
-    for (let i = 0; i < pile.length; i++) ctx.lineTo(i * COL_W, h - pile[i]);
+    ctx.lineTo(0, h - pile[0]);
+    // Curve through the midpoints rather than joining the column tops, so the surface
+    // reads as snow instead of as a sawtooth.
+    for (let i = 0; i < pile.length - 1; i++) {
+      const x0 = i * COL_W, x1 = (i + 1) * COL_W;
+      ctx.quadraticCurveTo(x0, h - pile[i], (x0 + x1) / 2, h - (pile[i] + pile[i + 1]) / 2);
+    }
     ctx.lineTo(w, h - pile[pile.length - 1]);
     ctx.lineTo(w, h);
     ctx.closePath();
