@@ -13,14 +13,27 @@ import IOKit.pwr_mgt
 
 // MARK: - One overlay window per screen
 
+/// Borderless windows refuse key status by default, which would leave Snowball Mode
+/// with no way to hear the Escape key. No initialisers of its own, so it inherits all
+/// of NSWindow's.
+final class OverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
 final class SnowOverlay {
     let window: NSWindow
     let web: WKWebView
     let screen: NSScreen
 
-    init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool) {
+    init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool,
+         handler: WKScriptMessageHandler?) {
         self.screen = screen
         let config = WKWebViewConfiguration()
+        if let handler {
+            let content = WKUserContentController()
+            content.add(handler, name: "snowfall")
+            config.userContentController = content
+        }
         config.suppressesIncrementalRendering = false
         // An overlay that renders one local page needs none of the heavier WebKit
         // machinery: no cache or cookie writes to disk, no media, no fullscreen.
@@ -33,11 +46,11 @@ final class SnowOverlay {
         web.allowsMagnification = false
         web.allowsLinkPreview = false
 
-        window = NSWindow(contentRect: screen.frame,
-                          styleMask: [.borderless],
-                          backing: .buffered,
-                          defer: false,
-                          screen: screen)
+        window = OverlayWindow(contentRect: screen.frame,
+                               styleMask: [.borderless],
+                               backing: .buffered,
+                               defer: false,
+                               screen: screen)
 
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -82,6 +95,13 @@ final class SnowOverlay {
 
     func sendPlow() { run("window.sendPlow && window.sendPlow();") }
     func setLedges(_ json: String) { run("window.setLedges && window.setLedges(\(json));") }
+
+    /// Snowball Mode is the one time the overlay stops being click-through.
+    func setInteractive(_ on: Bool) {
+        window.ignoresMouseEvents = !on
+        run("window.setInteractive && window.setInteractive(\(on));")
+        if on { window.makeKeyAndOrderFront(nil) }
+    }
 
     func readPile(_ done: @escaping (String?) -> Void) {
         web.evaluateJavaScript("JSON.stringify(window.getPile ? window.getPile() : [])") {
@@ -215,12 +235,13 @@ enum Defaults {
 
 // MARK: - App
 
-final class SnowController: NSObject, NSApplicationDelegate {
+final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHandler {
     private var overlays: [SnowOverlay] = []
     private var status: NSStatusItem?
     private var intensity = Defaults.intensity   // 1 light · 2 medium · 3 blizzard
     private var settings = SnowSettings.load()
     private var settingsWindow: SettingsWindow?
+    private var snowballMode = false
     private var snowing = true
     private let pageURL: URL
 
@@ -255,9 +276,11 @@ final class SnowController: NSObject, NSApplicationDelegate {
         tearDownWindows()
         for screen in NSScreen.screens {
             overlays.append(SnowOverlay(screen: screen, pageURL: pageURL,
-                                        intensity: intensity, powerSaver: powerSaving))
+                                        intensity: intensity, powerSaver: powerSaving,
+                                        handler: self))
         }
         overlays.forEach { $0.apply(settings, delay: 0.4) }
+        if snowballMode { overlays.forEach { $0.setInteractive(true) } }
 
         // A drift is hours of work. Put back whatever was on the ground last time.
         for (index, overlay) in overlays.enumerated() {
@@ -463,6 +486,12 @@ final class SnowController: NSObject, NSApplicationDelegate {
         clear.target = self
         menu.addItem(clear)
 
+        let snowballs = NSMenuItem(title: "Snowball Mode",
+                                   action: #selector(toggleSnowballs), keyEquivalent: "n")
+        snowballs.target = self
+        snowballs.state = snowballMode ? .on : .off
+        menu.addItem(snowballs)
+
         let prefs = NSMenuItem(title: "Snow Settings…",
                                action: #selector(openSettings), keyEquivalent: ",")
         prefs.target = self
@@ -577,6 +606,28 @@ final class SnowController: NSObject, NSApplicationDelegate {
                 UserDefaults.standard.set(json, forKey: "pile.\(index)")
             }
         }
+    }
+
+    /// While this is on the overlay swallows every click, which is the whole point and
+    /// also the danger, so it is announced in the menu and Escape turns it off.
+    @objc private func toggleSnowballs() {
+        snowballMode.toggle()
+        overlays.forEach { $0.setInteractive(snowballMode) }
+        if !snowballMode { NSApp.hide(nil) }
+        refreshMenu()
+    }
+
+    func userContentController(_ controller: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        if body["type"] as? String == "exitSnowball" {
+            guard snowballMode else { return }
+            snowballMode = false
+            overlays.forEach { $0.setInteractive(false) }
+            refreshMenu()
+            return
+        }
+        received(body)
     }
 
     @objc private func sendPlow() { overlays.forEach { $0.sendPlow() } }
