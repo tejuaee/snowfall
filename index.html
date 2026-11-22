@@ -42,7 +42,7 @@
 
   // Everything the native side (or the settings window) is allowed to change.
   const settings = {
-    pileRate: 0.35,      // px of depth per landed flake
+    fillMinutes: 60,     // how long a full drift takes; 0 = snow never settles
     plowSpeed: 260,      // px per second
     plowScale: 1,
     autoPlowDepth: 0,    // 0 = never plough on its own
@@ -149,8 +149,30 @@
     return (x / COL_W) | 0;
   }
 
+  // How much depth one landed flake is worth. Rather than a fixed number — which
+  // would mean something different on every screen, at every intensity — the engine
+  // counts how many flakes actually land per second and solves for the figure that
+  // fills the drift in the time you asked for.
+  let gain = 0;
+  let landings = 0;
+  let calibratedAt = performance.now();
+
+  function recalibrate(now) {
+    if (now - calibratedAt < 1000) return;
+    const rate = landings / ((now - calibratedAt) / 1000);   // landings per second
+    landings = 0;
+    calibratedAt = now;
+
+    if (!settings.fillMinutes || rate <= 0) { gain = 0; return; }
+    const volume = pileCap * pile.length;        // depth × columns to fill it everywhere
+    gain = volume / (rate * settings.fillMinutes * 60);
+  }
+
   function land(ci, depth) {
-    if (pile[ci] < pileCap) pile[ci] += settings.pileRate * (0.45 + depth);
+    landings++;
+    // Weighted so a big near flake counts for more, normalised by the average weight
+    // (0.835) so the weighting does not change how long filling takes.
+    if (pile[ci] < pileCap) pile[ci] += gain * (0.45 + depth) / 0.835;
   }
 
   // Snow does not stand in towers: anything steeper than REPOSE slumps onto its
@@ -283,6 +305,7 @@
     }
     ctx.globalAlpha = 1;
 
+    recalibrate(now);
     settle(dt);
     drawPile();
 
@@ -323,6 +346,22 @@
     frameInterval = 1000 / fps;
     resize();
     sync(false);
+  };
+
+  // Settings arrive from the macOS app, which owns them. Changing how long a drift
+  // takes re-paces the accumulation from the next second onwards.
+  window.applySettings = (next) => {
+    Object.assign(settings, next || {});
+    calibratedAt = 0;
+  };
+
+  window.clearPile = () => { pile.fill(0); };
+  window.getPile = () => Array.from(pile);
+  window.setPile = (heights) => {
+    if (!Array.isArray(heights) || !heights.length) return;
+    for (let i = 0; i < pile.length; i++) {
+      pile[i] = heights[Math.min(heights.length - 1, Math.floor(i * heights.length / pile.length))];
+    }
   };
 
   // Called from the browser (keys 1/2/3) and from the macOS app's menu bar.
