@@ -31,6 +31,8 @@ final class SnowOverlay: NSObject, WKNavigationDelegate {
     var onReload: (() -> Void)?
     private(set) var paused = false
     private var lastFrames = -1
+    private var reloads = 0
+    private var lastReload = Date.distantPast
 
     init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool,
          handler: WKScriptMessageHandler?) {
@@ -104,6 +106,11 @@ final class SnowOverlay: NSObject, WKNavigationDelegate {
     }
 
     func reload() {
+        // Reloading cannot fix everything. Try, but do not spin: a page that will not
+        // come back should not be hammered every twenty seconds for days.
+        guard Date().timeIntervalSince(lastReload) > 10, reloads < 8 else { return }
+        reloads += 1
+        lastReload = Date()
         lastFrames = -1
         web.loadFileURL(pageURL.appendingQueryItem("overlay", "1"),
                         allowingReadAccessTo: pageURL.deletingLastPathComponent())
@@ -118,6 +125,7 @@ final class SnowOverlay: NSObject, WKNavigationDelegate {
             guard let self else { return }
             guard let frames = value as? Int else { return report(true) }
             let stalled = !self.paused && self.lastFrames >= 0 && frames == self.lastFrames
+            if !stalled { self.reloads = 0 }        // it is healthy again
             self.lastFrames = frames
             report(stalled)
         }
@@ -313,18 +321,11 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
 
         // Keep the drift on disk so quitting, or a reboot, does not undo an evening of
         // snow. Every minute is often enough for something that accumulates this slowly.
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.savePiles()
-        }
+        every(60) { [weak self] in self?.savePiles() }
 
         // Windows move; the snow on them should keep up without being expensive.
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.publishLedges()
-        }
-
-        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            self?.checkHealth()
-        }
+        every(0.5) { [weak self] in self?.publishLedges() }
+        every(20) { [weak self] in self?.checkHealth() }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -363,7 +364,12 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
 
     @objc private func screensChanged() {
         guard snowing else { return }
-        startSnowing()
+        // Rebuilding throws the pages away, and with them an evening of drift. Read it
+        // out first — the read is asynchronous, hence the pause before the rebuild.
+        savePiles()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.startSnowing()
+        }
     }
 
     // MARK: Battery awareness
@@ -693,6 +699,13 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
             if b < span.1 { out.append((b, span.1)) }
         }
         return out
+    }
+
+    /// A repeating timer in the common run loop modes: the default mode alone stops
+    /// firing while a menu is open, which is exactly when the snow should carry on.
+    private func every(_ seconds: TimeInterval, _ body: @escaping () -> Void) {
+        let timer = Timer(timeInterval: seconds, repeats: true) { _ in body() }
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// Everything a freshly loaded page needs to look like the one it replaced.
