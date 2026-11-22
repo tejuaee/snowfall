@@ -10,7 +10,7 @@
   /* Standalone demo in a normal browser gets a night sky so white flakes are visible.
      The macOS overlay loads index.html?overlay=1 and stays fully transparent. */
   body.demo { background: radial-gradient(120% 90% at 50% 0%, #1b2a4a 0%, #0a0f1c 60%, #05070d 100%); }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   .mode {
     position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
     display: flex; align-items: center; gap: 12px;
@@ -609,9 +609,12 @@
     }
   }
 
-  canvas.addEventListener("mousedown", (e) => {
+  canvas.addEventListener("pointerdown", (e) => {
     if (!interactive) return;
-    if (grabbed) releaseGrab();        // a mouseup lost outside the window
+    if (grabbed) releaseGrab();        // a release we never heard about
+    if (canvas.setPointerCapture) {
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+    }
     const hit = ballAt(e.clientX, e.clientY);
 
     if (hit) {
@@ -637,9 +640,9 @@
     document.body.style.cursor = "grabbing";
   });
 
-  window.addEventListener("mousemove", (e) => {
+  window.addEventListener("pointermove", (e) => {
     if (!grabbed) return;
-    if (e.buttons === 0) { releaseGrab(); return; }   // a mouseup we never heard about
+    if (e.buttons === 0) { releaseGrab(); return; }   // a release we never heard about
 
     if (grabbed.mode === "carry") {
       grabbed.group.forEach((b, i) => {
@@ -656,7 +659,8 @@
     }
   });
 
-  window.addEventListener("mouseup", releaseGrab);
+  window.addEventListener("pointerup", releaseGrab);
+  window.addEventListener("pointercancel", releaseGrab);
   window.addEventListener("blur", releaseGrab);   // focus lost mid-drag
 
   // A double click is a second way out, for when the menu is awkward to reach.
