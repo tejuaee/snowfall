@@ -326,21 +326,79 @@
     }
   }
 
-  // Dropped balls rest on the ground, or on top of the ball below — which is how you
-  // end up with a snowman.
-  function settleBall(b) {
-    let supportY = groundAt(b.x);
+  // What a ball would come to rest on at its current x: the ground, or the top of the
+  // ball below it.
+  function supportFor(b) {
+    let surface = groundAt(b.x);
     let on = null;
     for (const other of balls) {
-      if (other === b || !other.resting) continue;
+      if (other === b || other.held || !other.resting) continue;
       if (Math.abs(other.x - b.x) < other.r * 0.95) {
         const top = other.y - other.r;
-        if (top < supportY) { supportY = top; on = other; }
+        if (top < surface) { surface = top; on = other; }
       }
     }
-    if (on) b.x = on.x;          // tidy the stack up as you build it
-    b.y = supportY - b.r;
-    b.resting = true;
+    return { y: surface, on };
+  }
+
+  // Dropped balls fall rather than appear: the same gravity as the flakes, and nothing
+  // ever hangs in the air. If the ground under a ball is ploughed away, or the ball it
+  // was standing on is picked up, it stops resting and comes down.
+  const BREAK_SPEED = 520;     // impact that a packed ball cannot survive
+
+  function updateBalls(dt) {
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if (b.held) continue;
+
+      const support = supportFor(b);
+      const restY = support.y - b.r;
+
+      if (b.resting) {
+        if (b.y < restY - 1.5) { b.resting = false; b.vy = 0; }
+        else { b.y = restY; continue; }
+      }
+
+      b.vy += G * dt;
+      b.y += b.vy * dt;
+      b.x += b.vx * dt;
+      b.rot += (b.vx * dt) / Math.max(6, b.r);
+
+      if (b.y >= restY) {
+        if (b.vy > BREAK_SPEED) { shatter(b); balls.splice(i, 1); continue; }
+        b.y = restY;
+        b.vx = 0;
+        b.vy = 0;
+        b.resting = true;
+        if (support.on) b.x = support.on.x;      // tidy the stack as it is built
+      }
+    }
+  }
+
+  // A ball that hits hard stops being a ball: its volume goes back into the ground as
+  // a mound, with a burst of loose snow.
+  function shatter(b) {
+    const area = Math.PI * b.r * b.r;
+    const spread = Math.max(3, Math.round((b.r * 2.6) / COL_W));
+    const start = column(b.x) - (spread >> 1);
+    const perColumn = area / (spread * COL_W);
+    for (let k = 0; k < spread; k++) {
+      const i = start + k;
+      if (i < 0 || i >= pile.length) continue;
+      const weight = 1 - Math.abs(k - spread / 2) / (spread / 2);
+      pile[i] = Math.min(pileCap, pile[i] + perColumn * (0.55 + weight));
+    }
+    const lumps = Math.min(28, 8 + (b.r | 0));
+    for (let n = 0; n < lumps && spray.length < 120; n++) {
+      spray.push({
+        x: b.x + rand(-b.r, b.r),
+        y: b.y + rand(-b.r, b.r * 0.4),
+        vx: rand(-170, 170),
+        vy: -rand(30, 210),
+        r: rand(1, 2.6),
+        life: 1
+      });
+    }
   }
 
   function stackUnder(b) {
@@ -424,9 +482,11 @@
     const held = ballAt(e.clientX, e.clientY);
     if (held) {
       held.resting = false;
+      held.held = true;
       grabbed = { ball: held, mode: "carry" };
     } else {
-      const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0, resting: false };
+      const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0,
+                     vx: 0, vy: 0, held: true, resting: false };
       balls.push(ball);
       grabbed = { ball, mode: "roll", lastX: e.clientX };
     }
@@ -449,7 +509,9 @@
 
   window.addEventListener("mouseup", () => {
     if (!grabbed) return;
-    settleBall(grabbed.ball);
+    const b = grabbed.ball;
+    b.held = false;
+    b.resting = false;        // let it fall from wherever you let go of it
     grabbed = null;
     document.body.style.cursor = interactive ? "grab" : "default";
   });
@@ -779,6 +841,7 @@
     maybeAutoPlow();
     updateSpray(dt);
     settle(dt);
+    updateBalls(dt);
     drawPile();
     drawBalls();
     drawPlow();
