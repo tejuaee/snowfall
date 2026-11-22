@@ -36,7 +36,7 @@
   // deliberately slow: at the default rate a Medium snowfall lays down roughly 15px an
   // hour, so a proper drift along the bottom of the screen is an evening's work.
   const COL_W = 4;
-  const MAX_SLOPE = 1.6;        // px of difference neighbouring columns tolerate
+  const REPOSE = Math.tan(38 * Math.PI / 180) * 4;   // snow holds a ~38° face
   let pile = new Float32Array(0);
   let pileCap = 0;
 
@@ -86,6 +86,7 @@
 
   // Flake count scales with the area of the screen, so a 6K display is not sparse.
   const TAU = Math.PI * 2;
+  const G = 400;                // px/s² — gravity, in screen units
   // Flakes are drawn in a few fixed opacities rather than one each, so a frame is a
   // handful of fills instead of three canvas state changes per flake.
   const BUCKETS = 5;
@@ -109,7 +110,9 @@
       y: seeded ? rand(-h, h) : rand(-60, -10),
       depth,
       r: 0.7 + depth * 2.6,
-      vy: 14 + depth * 46,            // px per second
+      term: 14 + depth * 46,          // terminal velocity, px/s — big flakes fall faster
+      vy: seeded ? 14 + depth * 46 : 0,
+      vx: 0,
       sway: rand(10, 34) * (0.4 + depth),
       phase: rand(0, Math.PI * 2),
       spin: rand(0.4, 1.3),
@@ -150,17 +153,17 @@
     if (pile[ci] < pileCap) pile[ci] += settings.pileRate * (0.45 + depth);
   }
 
-  // Snow does not stand in towers: anything steeper than MAX_SLOPE slumps onto its
+  // Snow does not stand in towers: anything steeper than REPOSE slumps onto its
   // neighbour, which is also what spreads out the ridge a plough leaves behind.
   function settle(dt) {
     const give = Math.min(1, dt * 9) * 0.25;
     for (let i = 0; i < pile.length - 1; i++) {
       const d = pile[i] - pile[i + 1];
-      if (d > MAX_SLOPE) {
-        const move = (d - MAX_SLOPE) * give;
+      if (d > REPOSE) {
+        const move = (d - REPOSE) * give;
         pile[i] -= move; pile[i + 1] += move;
-      } else if (d < -MAX_SLOPE) {
-        const move = (-d - MAX_SLOPE) * give;
+      } else if (d < -REPOSE) {
+        const move = (-d - REPOSE) * give;
         pile[i] += move; pile[i + 1] -= move;
       }
     }
@@ -241,8 +244,18 @@
 
     for (const f of flakes) {
       f.phase += f.spin * dt;
+
+      // Gravity resisted by air: v' = g - (g/terminal²)·v², so a flake accelerates out
+      // of the sky and levels off at its own terminal velocity rather than travelling
+      // at a constant speed. Small flakes have more drag for their weight and hang.
+      f.vy += (G - (G / (f.term * f.term)) * f.vy * f.vy) * dt;
       f.y += f.vy * dt;
-      f.x += (wind * (0.3 + f.depth) + Math.sin(f.phase) * f.sway) * dt;
+
+      // Sideways it has momentum too: the wind and its own wobble are forces it lags
+      // behind, which is why snow curls instead of sliding along straight lines.
+      const push = wind * (0.3 + f.depth) + Math.sin(f.phase) * f.sway;
+      f.vx += (push - f.vx) * Math.min(1, dt * 2.2);
+      f.x += f.vx * dt;
 
       // Landing on the drift rather than on the bottom of the screen.
       const ci = column(f.x);
