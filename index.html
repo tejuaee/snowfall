@@ -86,6 +86,11 @@
   let powerSaver = false;
   let paused = false;
 
+  // Declared up here because the very first sync() reads it, long before the frame-rate
+  // code further down would have got round to defining it.
+  const calmQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let calm = calmQuery.matches;
+
   // Backing-store pixels are the biggest single GPU cost here. Small white dots do not
   // need the full Retina scale, so cap at 1.5x, or 1x while saving power: on a 5K
   // display that is well under half the pixels of a naive devicePixelRatio canvas.
@@ -1156,9 +1161,6 @@
 
   // Someone who has asked the system for less motion should not be handed a blizzard.
   // It still snows — that is the whole point — but gently, and at a lower rate.
-  const calmQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let calm = calmQuery.matches;
-
   function updateFrameRate() {
     fps = calm ? 20 : powerSaver ? FPS_SAVER : FPS_NORMAL;
     frameInterval = 1000 / fps;
