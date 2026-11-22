@@ -368,7 +368,10 @@
   // Dropped balls fall rather than appear: the same gravity as the flakes, and nothing
   // ever hangs in the air. If the ground under a ball is ploughed away, or the ball it
   // was standing on is picked up, it stops resting and comes down.
-  const BREAK_SPEED = 520;     // impact that a packed ball cannot survive
+  // The impact a packed ball cannot survive. With gravity at G this is reached after
+  // falling about 110px, so lifting a snowman and dropping it breaks it, while setting
+  // one down gently, or the ground being ploughed from under it, does not.
+  const BREAK_SPEED = 300;
 
   function updateBalls(dt) {
     for (let i = balls.length - 1; i >= 0; i--) {
@@ -395,7 +398,17 @@
       if (b.y < b.r) { b.y = b.r; if (b.vy < 0) b.vy = 0; }
 
       if (b.y >= restY) {
-        if (b.vy > BREAK_SPEED) { shatter(b); balls.splice(i, 1); continue; }
+        if (b.vy > BREAK_SPEED) {
+          shatter(b);
+          b.doomed = true;
+          // Landing hard on top of something takes that apart as well, so dropping a
+          // ball onto a snowman knocks the snowman down.
+          if (support.on && b.vy > BREAK_SPEED * 1.15) {
+            shatter(support.on);
+            support.on.doomed = true;
+          }
+          continue;
+        }
         b.y = restY;
         b.vx = 0;
         b.vy = 0;
@@ -403,6 +416,8 @@
         if (support.on) b.x = support.on.x;      // tidy the stack as it is built
       }
     }
+
+    for (let i = balls.length - 1; i >= 0; i--) if (balls[i].doomed) balls.splice(i, 1);
   }
 
   // A ball that hits hard stops being a ball: its volume goes back into the ground as
@@ -418,13 +433,13 @@
       const weight = 1 - Math.abs(k - spread / 2) / (spread / 2);
       pile[i] = Math.min(pileCap, pile[i] + perColumn * (0.55 + weight));
     }
-    const lumps = Math.min(28, 8 + (b.r | 0));
-    for (let n = 0; n < lumps && spray.length < 120; n++) {
+    const lumps = Math.min(44, 14 + (b.r | 0));
+    for (let n = 0; n < lumps && spray.length < 150; n++) {
       spray.push({
         x: b.x + rand(-b.r, b.r),
         y: b.y + rand(-b.r, b.r * 0.4),
-        vx: rand(-170, 170),
-        vy: -rand(30, 210),
+        vx: rand(-220, 220),
+        vy: -rand(60, 260),
         r: rand(1, 2.6),
         life: 1
       });
