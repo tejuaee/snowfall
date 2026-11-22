@@ -56,6 +56,20 @@ Two consequences:
   wallpaper, not snow. That one is not reachable.
 - The saver is unsigned, so macOS may want you to allow it the first time.
 
+## Accessibility
+
+- **Reduce Motion** (System Settings → Accessibility → Display) halves the flakes, calms
+  the wind and lowers the frame rate. It still snows; it stops being constant movement.
+- The settings window is entirely keyboard-operable, with focus rings, live values and
+  each control tied to the sentence that explains it. It follows increased contrast and
+  reduced transparency too.
+- The ❄ in the menu bar announces itself to VoiceOver, and the menu reads as three
+  groups rather than a dozen flat items.
+- Snowball Mode says on screen what it is and carries a **Leave** button, because a mode
+  that swallows clicks should never be hard to get out of. Escape and a double click
+  work as well.
+- Rolling a snowball is the same gesture with a mouse, a trackpad or a finger.
+
 ## How it works
 
 | File | What it does |
@@ -72,6 +86,11 @@ Flakes fall under gravity against air resistance — `v' = g − (g/terminal²)�
 accelerate out of the sky and level off at a terminal velocity that depends on their size,
 and the wind is a force they lag behind rather than a number added to their position.
 
+Lying snow is drawn as grains, not as a flat colour: a speckle tile repeated over every
+surface, a body that cools toward blue with depth, a lit crest where it meets the air,
+and the odd facet catching the light. The nearest flakes are drawn as six-armed crystals
+turning as they fall, while the distant ones stay dots.
+
 Each flake gets a random *depth*. Near flakes are bigger, brighter and faster; far ones
 are small and faint, which is what makes the fall read as three-dimensional rather than
 as dots sliding down a pane of glass. A wind value wanders every few seconds so no two
@@ -81,7 +100,8 @@ real storm instead of a sprinkle.
 ## Snow that piles up, and a plough
 
 Flakes land on the ground rather than at the bottom edge, and what lands stays: a height
-map across the screen that builds into a drift over your Dock. Lying snow creeps toward
+map across the screen that builds into a drift over your Dock, over the top edge of every
+window, and over your desktop widgets. Lying snow creeps toward
 its neighbours and anything steeper than a 20° face slumps, so the surface reads as long
 shallow curves rather than spikes.
 
@@ -112,8 +132,8 @@ an evening of snow survives a quit or a reboot.
 
 ## Snow on your windows
 
-Snow does not only land on the desktop: the top edge of every window is a ledge it can
-lie on, so a Safari window picks up a white line along its title bar that thickens as the
+Snow does not only land on the desktop: the top edge of every window and every desktop
+widget is a ledge it can lie on, so a Safari window picks up a white line along its title bar that thickens as the
 night goes on. The height map is keyed to the window, not to a position, so the snow
 **rides along when you drag the window**, and an edge covered by a window in front of it
 collects nothing.
