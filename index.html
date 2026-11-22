@@ -132,7 +132,8 @@
   const rand = (a, b) => a + Math.random() * (b - a);
 
   function targetCount() {
-    return Math.round((w * h) / 9000 * intensity * (powerSaver ? 0.55 : 1));
+    const easing = (powerSaver ? 0.55 : 1) * (calm ? 0.5 : 1);
+    return Math.round(((w * h) / 9000) * intensity * easing);
   }
 
   function makeFlake(seeded) {
@@ -1036,7 +1037,10 @@
     lastDraw = now;
 
     windTimer -= dt;
-    if (windTimer <= 0) { windGoal = rand(-34, 34); windTimer = rand(3, 8); }
+    if (windTimer <= 0) {
+      windGoal = calm ? rand(-10, 10) : rand(-34, 34);
+      windTimer = rand(3, 8);
+    }
     wind += (windGoal - wind) * Math.min(dt * 0.5, 1);
 
     ctx.clearRect(0, 0, w, h);
@@ -1149,12 +1153,28 @@
   // Called when the Mac moves to battery or Low Power Mode: fewer flakes, fewer
   // frames, fewer pixels. It is still visibly snowing.
   const FPS_SAVER = 20;
+
+  // Someone who has asked the system for less motion should not be handed a blizzard.
+  // It still snows — that is the whole point — but gently, and at a lower rate.
+  const calmQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let calm = calmQuery.matches;
+
+  function updateFrameRate() {
+    fps = calm ? 20 : powerSaver ? FPS_SAVER : FPS_NORMAL;
+    frameInterval = 1000 / fps;
+  }
+
+  calmQuery.addEventListener("change", (event) => {
+    calm = event.matches;
+    updateFrameRate();
+    sync(false);
+  });
+
   window.setPowerSaver = (on) => {
     on = !!on;
     if (on === powerSaver) return;
     powerSaver = on;
-    fps = powerSaver ? FPS_SAVER : FPS_NORMAL;
-    frameInterval = 1000 / fps;
+    updateFrameRate();
     resize();
     sync(false);
   };
