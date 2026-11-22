@@ -559,8 +559,15 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
 
         // Front to back, which is the order CGWindowList returns.
         var windows: [Ledge] = []
+        // Layer 0 is an ordinary window. Desktop widgets sit *below* that, at large
+        // negative layers, which is why they used to collect nothing; the wallpaper and
+        // the window server's own surfaces live down there too, so they are named out
+        // and the screen-sized ones are dropped further down anyway.
+        let notWindows: Set<String> = ["Window Server", "WindowManager", "Dock", "Wallpaper"]
+
         for entry in info {
-            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+            guard (entry[kCGWindowLayer as String] as? Int ?? 1) <= 0,
+                  !notWindows.contains(entry[kCGWindowOwnerName as String] as? String ?? ""),
                   (entry[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
                   (entry[kCGWindowOwnerPID as String] as? Int32) != mine,
                   let id = entry[kCGWindowNumber as String] as? Int,
