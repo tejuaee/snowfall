@@ -277,6 +277,192 @@
     return false;
   }
 
+  // ---- snowballs and snowmen ----------------------------------------------
+
+  // Only live while Snowball Mode is on, because the overlay has to stop being
+  // click-through to hear a mouse at all.
+  const balls = [];
+  let interactive = false;
+  let grabbed = null;
+
+  const bridge = () => window.webkit && window.webkit.messageHandlers
+    && window.webkit.messageHandlers.snowfall;
+
+  window.setInteractive = (on) => {
+    interactive = !!on;
+    if (!interactive) grabbed = null;
+    document.body.style.cursor = interactive ? "grab" : "default";
+  };
+
+  function groundAt(x) { return h - pile[column(x)]; }
+
+  function ballAt(x, y) {
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if ((x - b.x) ** 2 + (y - b.y) ** 2 <= b.r * b.r) return b;
+    }
+    return null;
+  }
+
+  // Rolling picks the snow up off the ground and turns it into volume: the ball grows
+  // by the area it sweeps away, so a long roll through deep snow makes a big ball and
+  // leaves a clean track behind it.
+  function rollThrough(b, dx) {
+    const distance = Math.abs(dx);
+    if (!distance) return;
+    b.rot += dx / Math.max(6, b.r);
+
+    const i0 = Math.max(0, column(b.x - b.r));
+    const i1 = Math.min(pile.length - 1, column(b.x + b.r));
+    let taken = 0;
+    for (let i = i0; i <= i1; i++) {
+      const bite = Math.min(pile[i], distance * 0.3);
+      pile[i] -= bite;
+      taken += bite * COL_W;
+    }
+    if (taken > 0) {
+      const area = Math.PI * b.r * b.r + taken * 0.75;
+      b.r = Math.min(h * 0.13, Math.sqrt(area / Math.PI));
+    }
+  }
+
+  // Dropped balls rest on the ground, or on top of the ball below — which is how you
+  // end up with a snowman.
+  function settleBall(b) {
+    let supportY = groundAt(b.x);
+    let on = null;
+    for (const other of balls) {
+      if (other === b || !other.resting) continue;
+      if (Math.abs(other.x - b.x) < other.r * 0.95) {
+        const top = other.y - other.r;
+        if (top < supportY) { supportY = top; on = other; }
+      }
+    }
+    if (on) b.x = on.x;          // tidy the stack up as you build it
+    b.y = supportY - b.r;
+    b.resting = true;
+  }
+
+  function stackUnder(b) {
+    let count = 1, current = b, guard = 0;
+    while (guard++ < 8) {
+      const below = balls.find((o) => o !== current && o.resting
+        && Math.abs(o.x - current.x) < o.r * 0.7
+        && Math.abs((o.y - o.r) - (current.y + current.r)) < 8);
+      if (!below) break;
+      count++;
+      current = below;
+    }
+    return count;
+  }
+
+  function hasBallOn(b) {
+    return balls.some((o) => o !== b && o.resting
+      && Math.abs(o.x - b.x) < b.r * 0.7
+      && Math.abs((b.y - b.r) - (o.y + o.r)) < 8);
+  }
+
+  function drawBalls() {
+    for (const b of balls) {
+      const shade = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.15,
+                                             b.x, b.y, b.r);
+      shade.addColorStop(0, "#ffffff");
+      shade.addColorStop(1, "#c9d6e8");
+      ctx.fillStyle = shade;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, TAU);
+      ctx.fill();
+
+      // A speck of grit so you can see it turning as it rolls.
+      ctx.fillStyle = "rgba(150,170,195,0.5)";
+      ctx.beginPath();
+      ctx.arc(b.x + Math.cos(b.rot) * b.r * 0.55, b.y + Math.sin(b.rot) * b.r * 0.55,
+              Math.max(1, b.r * 0.08), 0, TAU);
+      ctx.fill();
+
+      const height = stackUnder(b);
+      if (height >= 2 && !hasBallOn(b)) drawFace(b);
+      else if (height === 2 && hasBallOn(b)) drawButtons(b);
+    }
+  }
+
+  function drawFace(b) {
+    const r = b.r;
+    ctx.fillStyle = "#1d2430";
+    for (const side of [-0.33, 0.33]) {
+      ctx.beginPath();
+      ctx.arc(b.x + side * r, b.y - r * 0.25, Math.max(1.2, r * 0.1), 0, TAU);
+      ctx.fill();
+    }
+    ctx.beginPath();                       // carrot
+    ctx.moveTo(b.x, b.y - r * 0.02);
+    ctx.lineTo(b.x + r * 0.62, b.y + r * 0.07);
+    ctx.lineTo(b.x, b.y + r * 0.16);
+    ctx.closePath();
+    ctx.fillStyle = "#e8822c";
+    ctx.fill();
+    ctx.fillStyle = "#1d2430";             // a coal smile
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.arc(b.x + i * r * 0.17, b.y + r * 0.42 + Math.abs(i) * r * 0.045,
+              Math.max(0.9, r * 0.055), 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  function drawButtons(b) {
+    ctx.fillStyle = "#1d2430";
+    for (const dy of [-0.3, 0, 0.3]) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y + dy * b.r, Math.max(1, b.r * 0.07), 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    if (!interactive) return;
+    const held = ballAt(e.clientX, e.clientY);
+    if (held) {
+      held.resting = false;
+      grabbed = { ball: held, mode: "carry" };
+    } else {
+      const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0, resting: false };
+      balls.push(ball);
+      grabbed = { ball, mode: "roll", lastX: e.clientX };
+    }
+    document.body.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!grabbed) return;
+    const b = grabbed.ball;
+    if (grabbed.mode === "carry") {
+      b.x = e.clientX;
+      b.y = e.clientY;
+    } else {
+      rollThrough(b, e.clientX - grabbed.lastX);
+      grabbed.lastX = e.clientX;
+      b.x = e.clientX;
+      b.y = groundAt(b.x) - b.r;
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!grabbed) return;
+    settleBall(grabbed.ball);
+    grabbed = null;
+    document.body.style.cursor = interactive ? "grab" : "default";
+  });
+
+  // Escape is the way out of a mode that is swallowing every click.
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && interactive) {
+      const b = bridge();
+      if (b) b.postMessage({ type: "exitSnowball" });
+      window.setInteractive(false);
+    }
+  });
+
   // ---- the plough ---------------------------------------------------------
 
   let plow = null;
@@ -330,6 +516,15 @@
       thrown += share - add;
     }
     if (thrown > 0.4) cast(p, thrown);
+
+    // Anything you built in its way goes with it.
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if (Math.abs(b.x - p.x) < 44 * p.scale && b.y + b.r > h - 90 * p.scale) {
+        p.carry += (Math.PI * b.r * b.r) / COL_W * 0.6;
+        balls.splice(i, 1);
+      }
+    }
 
     const off = 160 * p.scale;
     if (p.x < -off || p.x > w + off) {
@@ -585,6 +780,7 @@
     updateSpray(dt);
     settle(dt);
     drawPile();
+    drawBalls();
     drawPlow();
     drawSpray();
 
@@ -636,6 +832,7 @@
 
   window.clearPile = () => {
     pile.fill(0);
+    balls.length = 0;
     for (const ledge of ledges.values()) ledge.snow.fill(0);
   };
   window.getPile = () => Array.from(pile);
