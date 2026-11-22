@@ -787,8 +787,30 @@
 
   // Curves through the midpoints rather than joining column tops, so a surface reads
   // as snow instead of as a sawtooth. Used for the ground and for every window ledge.
-  function drawSurface(arr, originX, baseY, i0, i1) {
-    if (i1 <= i0) return;
+  // A tile of speckle, built once and repeated across every snow surface. Snow is not
+  // a flat colour: it is countless grains catching the light at different angles, and
+  // without that it reads as paint.
+  let grain = null;
+
+  function makeGrain() {
+    const size = 96;
+    const tile = document.createElement("canvas");
+    tile.width = tile.height = size;
+    const g = tile.getContext("2d");
+    const image = g.createImageData(size, size);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const n = Math.random();
+      const lit = n > 0.84, shaded = n < 0.16;
+      const value = lit ? 255 : shaded ? 158 : 214;
+      image.data[i] = image.data[i + 1] = image.data[i + 2] = value;
+      image.data[i + 3] = lit ? 76 : shaded ? 48 : 16;
+    }
+    g.putImageData(image, 0, 0);
+    return ctx.createPattern(tile, "repeat");
+  }
+
+  function surfacePath(arr, originX, baseY, i0, i1) {
+    if (i1 <= i0) return false;
     ctx.beginPath();
     ctx.moveTo(originX + i0 * COL_W, baseY);
     ctx.lineTo(originX + i0 * COL_W, baseY - arr[i0]);
@@ -799,14 +821,32 @@
     ctx.lineTo(originX + i1 * COL_W, baseY - arr[i1]);
     ctx.lineTo(originX + i1 * COL_W, baseY);
     ctx.closePath();
+    return true;
+  }
+
+  // Lying snow: a body that cools toward blue with depth, the grain over the top, and
+  // a lit crest along the surface where it meets the air.
+  function paintSnow(arr, originX, baseY, i0, i1) {
+    if (!surfacePath(arr, originX, baseY, i0, i1)) return;
+
+    const body = ctx.createLinearGradient(0, baseY - Math.max(40, h * 0.12), 0, baseY);
+    body.addColorStop(0, "#ffffff");
+    body.addColorStop(1, "#d6e1f1");
+    ctx.fillStyle = body;
     ctx.fill();
+
+    if (grain) { ctx.fillStyle = grain; ctx.fill(); }
+
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
   }
 
   function drawPile() {
     if (!pile.length) return;
-    ctx.globalAlpha = 0.96;
-    ctx.fillStyle = "#f2f6ff";
-    drawSurface(pile, 0, h, 0, pile.length - 1);
+    if (!grain) grain = makeGrain();
+    ctx.globalAlpha = 0.97;
+    paintSnow(pile, 0, h, 0, pile.length - 1);
 
     // Snow lying on the top edge of every window, drawn only where that edge is not
     // covered by a window in front of it.
@@ -814,7 +854,7 @@
       for (const span of ledge.spans) {
         const i0 = Math.max(0, Math.floor(span[0] / COL_W));
         const i1 = Math.min(ledge.snow.length - 1, Math.ceil(span[1] / COL_W));
-        drawSurface(ledge.snow, ledge.x, ledge.y, i0, i1);
+        paintSnow(ledge.snow, ledge.x, ledge.y, i0, i1);
       }
     }
     ctx.globalAlpha = 1;
