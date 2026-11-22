@@ -515,6 +515,12 @@
         lastX: e.clientX, lastY: e.clientY, lastT: performance.now(), vx: 0, vy: 0
       };
     } else {
+      // Only snow makes snowballs. Clicking the empty desktop does nothing at all,
+      // rather than conjuring a ball out of thin air down on the drift.
+      const ci = column(e.clientX);
+      const surface = h - pile[ci];
+      if (pile[ci] < 3 || e.clientY < surface - 26) return;
+
       const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0,
                      vx: 0, vy: 0, held: true, resting: false };
       balls.push(ball);

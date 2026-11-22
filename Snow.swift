@@ -96,9 +96,19 @@ final class SnowOverlay {
     func sendPlow() { run("window.sendPlow && window.sendPlow();") }
     func setLedges(_ json: String) { run("window.setLedges && window.setLedges(\(json));") }
 
-    /// Snowball Mode is the one time the overlay stops being click-through.
+    /// Snowball Mode is the one time the overlay stops being click-through. While it is
+    /// listening for the mouse it must also stop covering the menu bar, or the ❄ menu
+    /// itself becomes unclickable.
     func setInteractive(_ on: Bool) {
         window.ignoresMouseEvents = !on
+
+        let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
+        window.setFrame(on ? NSRect(x: screen.frame.minX, y: screen.frame.minY,
+                                    width: screen.frame.width,
+                                    height: screen.frame.height - menuBar)
+                           : screen.frame,
+                        display: true)
+
         run("window.setInteractive && window.setInteractive(\(on));")
         if on { window.makeKeyAndOrderFront(nil) }
     }
