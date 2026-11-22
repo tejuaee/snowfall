@@ -16,8 +16,10 @@ import IOKit.pwr_mgt
 final class SnowOverlay {
     let window: NSWindow
     let web: WKWebView
+    let screen: NSScreen
 
     init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool) {
+        self.screen = screen
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // An overlay that renders one local page needs none of the heavier WebKit
@@ -79,6 +81,7 @@ final class SnowOverlay {
     }
 
     func sendPlow() { run("window.sendPlow && window.sendPlow();") }
+    func setLedges(_ json: String) { run("window.setLedges && window.setLedges(\(json));") }
 
     func readPile(_ done: @escaping (String?) -> Void) {
         web.evaluateJavaScript("JSON.stringify(window.getPile ? window.getPile() : [])") {
@@ -236,6 +239,11 @@ final class SnowController: NSObject, NSApplicationDelegate {
         // snow. Every minute is often enough for something that accumulates this slowly.
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.savePiles()
+        }
+
+        // Windows move; the snow on them should keep up without being expensive.
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.publishLedges()
         }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
@@ -481,6 +489,85 @@ final class SnowController: NSObject, NSApplicationDelegate {
         } else {
             startSnowing()
         }
+    }
+
+    // MARK: Snow on windows
+
+    private struct Ledge { let id: Int; let rect: CGRect }
+
+    /// Every window's top edge is somewhere snow can lie. Window geometry comes from
+    /// CGWindowList, which needs no permission — only window *titles* are privileged,
+    /// and those are of no interest here.
+    private func publishLedges() {
+        guard snowing, !overlays.isEmpty else { return }
+
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                              kCGNullWindowID) as? [[String: Any]] ?? []
+        let mine = ProcessInfo.processInfo.processIdentifier
+
+        // Front to back, which is the order CGWindowList returns.
+        var windows: [Ledge] = []
+        for entry in info {
+            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  (entry[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
+                  (entry[kCGWindowOwnerPID as String] as? Int32) != mine,
+                  let id = entry[kCGWindowNumber as String] as? Int,
+                  let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat]
+            else { continue }
+
+            let rect = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
+                              width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+            if rect.width < 90 || rect.height < 40 { continue }
+            windows.append(Ledge(id: id, rect: rect))
+        }
+
+        guard let primary = NSScreen.screens.first else { return }
+
+        for overlay in overlays {
+            let frame = overlay.screen.frame
+            let originX = frame.origin.x
+            let originY = primary.frame.maxY - frame.maxY     // CoreGraphics counts down
+            var payload: [[String: Any]] = []
+
+            for (index, win) in windows.enumerated() {
+                let top = win.rect.minY
+
+                // What is left of this edge once the windows in front of it are removed.
+                var spans = [(win.rect.minX, win.rect.maxX)]
+                for other in windows[0..<index] where other.rect.minY <= top && other.rect.maxY > top {
+                    spans = subtract(spans, other.rect.minX, other.rect.maxX)
+                }
+                spans = spans.filter { $0.1 - $0.0 > 40 }
+                if spans.isEmpty { continue }
+
+                let x = win.rect.minX - originX
+                let y = top - originY
+                if y < 0 || y > frame.height || x > frame.width || x + win.rect.width < 0 { continue }
+
+                payload.append([
+                    "id": "\(win.id)",
+                    "x": Double(x),
+                    "y": Double(y),
+                    "w": Double(win.rect.width),
+                    "spans": spans.map { [Double($0.0 - win.rect.minX), Double($0.1 - win.rect.minX)] }
+                ])
+            }
+
+            guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                  let json = String(data: data, encoding: .utf8) else { continue }
+            overlay.setLedges(json)
+        }
+    }
+
+    private func subtract(_ spans: [(CGFloat, CGFloat)],
+                          _ a: CGFloat, _ b: CGFloat) -> [(CGFloat, CGFloat)] {
+        var out: [(CGFloat, CGFloat)] = []
+        for span in spans {
+            if b <= span.0 || a >= span.1 { out.append(span); continue }
+            if a > span.0 { out.append((span.0, a)) }
+            if b < span.1 { out.append((b, span.1)) }
+        }
+        return out
     }
 
     private func savePiles() {
