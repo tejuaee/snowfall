@@ -3,11 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [[ ! -x ./snowfall || Snow.swift -nt ./snowfall ]]; then
-  echo "Building snowfall…"
-  swiftc -O Snow.swift -o snowfall
-fi
-
 usage() {
   cat <<'TEXT'
 Snowfall — falling snow for your macOS desktop.
@@ -40,6 +35,10 @@ case "${1:-start}" in
     exit 0
     ;;
   start)
+    if [[ ! -x ./snowfall || Snow.swift -nt ./snowfall ]]; then
+      echo "Building snowfall…"
+      swiftc -O Snow.swift -o snowfall
+    fi
     pkill -x snowfall 2>/dev/null || true   # never stack two overlays per screen
     echo "Let it snow. ❄  Use the ❄ in the menu bar for intensity, battery mode or quit."
     exec ./snowfall
