@@ -32,6 +32,7 @@ final class SnowOverlay: NSObject, WKNavigationDelegate {
     private(set) var paused = false
     private var lastFrames = -1
     private var reloads = 0
+    private var stalls = 0
     private var lastReload = Date.distantPast
 
     init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool,
@@ -123,11 +124,19 @@ final class SnowOverlay: NSObject, WKNavigationDelegate {
         web.evaluateJavaScript("window.__snowState ? window.__snowState().frames : null") {
             [weak self] value, _ in
             guard let self else { return }
-            guard let frames = value as? Int else { return report(true) }
+            guard let frames = value as? Int else {
+                self.stalls += 1
+                return report(self.stalls >= 2)
+            }
             let stalled = !self.paused && self.lastFrames >= 0 && frames == self.lastFrames
-            if !stalled { self.reloads = 0 }        // it is healthy again
             self.lastFrames = frames
-            report(stalled)
+
+            // WebKit throttles a page it considers hidden down to a frame every several
+            // seconds, which is not a fault. Only a page that has drawn nothing across
+            // two checks in a row — about forty seconds — is treated as stuck.
+            self.stalls = stalled ? self.stalls + 1 : 0
+            if !stalled { self.reloads = 0 }        // healthy again
+            report(self.stalls >= 2)
         }
     }
 
