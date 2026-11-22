@@ -22,7 +22,8 @@
 </head>
 <body>
 <canvas id="sky"></canvas>
-<p class="hint">1 / 2 / 3 changes how hard it snows &nbsp;·&nbsp; P sends the plough</p>
+<p class="hint">1 / 2 / 3 changes how hard it snows &nbsp;·&nbsp; P sends the plough
+  &nbsp;·&nbsp; drag the snow to roll a snowball</p>
 <script>
 (() => {
   "use strict";
@@ -137,7 +138,9 @@
   // Keeps whatever has already settled when the screen changes size, by resampling the
   // old heights across the new column count rather than throwing away the drift.
   function rebuildPile() {
-    const n = Math.max(1, Math.ceil(w / COL_W));
+    // One column past the right edge, so the drift reaches it instead of stopping a
+    // few pixels short.
+    const n = Math.max(2, Math.ceil(w / COL_W) + 1);
     const next = new Float32Array(n);
     if (pile.length) {
       for (let i = 0; i < n; i++) {
@@ -152,7 +155,8 @@
   // Everything is a share of the screen rather than a count of pixels: 100% means the
   // snow is allowed to bury the display completely.
   function applyDepthCap() {
-    pileCap = h * (settings.maxDepthPercent / 100);
+    const percent = Number.isFinite(settings.maxDepthPercent) ? settings.maxDepthPercent : 100;
+    pileCap = h * (Math.max(1, Math.min(100, percent)) / 100);
     for (let i = 0; i < pile.length; i++) if (pile[i] > pileCap) pile[i] = pileCap;
   }
 
@@ -189,8 +193,9 @@
       creep(ledge.snow, ledge.scratch, dt);
       // Nothing holds snow on at the ends of a window, so it tips off the edges.
       const n = ledge.snow.length;
-      ledge.snow[0] *= 0.9;
-      ledge.snow[n - 1] *= 0.9;
+      const keep = Math.max(0, 1 - dt * 3);     // same tipping rate at any frame rate
+      ledge.snow[0] *= keep;
+      ledge.snow[n - 1] *= keep;
     }
   }
 
@@ -290,10 +295,7 @@
 
   window.setInteractive = (on) => {
     interactive = !!on;
-    if (!interactive && grabbed) {
-      for (const b of grabbed.group) { b.held = false; b.resting = false; }
-      grabbed = null;                 // never leave a ball stranded in mid-air
-    }
+    if (!interactive) releaseGrab();   // never leave a ball stranded in mid-air
     document.body.style.cursor = interactive ? "grab" : "default";
   };
 
@@ -302,9 +304,24 @@
   function ballAt(x, y) {
     for (let i = balls.length - 1; i >= 0; i--) {
       const b = balls[i];
-      if ((x - b.x) ** 2 + (y - b.y) ** 2 <= b.r * b.r) return b;
+      const reach = b.r + 12;        // a little margin, or small balls are unhittable
+      if ((x - b.x) ** 2 + (y - b.y) ** 2 <= reach * reach) return b;
     }
     return null;
+  }
+
+  // Everything you were holding is let go here, and only here: it drops from where it
+  // is, with no sideways speed, so nothing is ever flung across the screen.
+  function releaseGrab() {
+    if (!grabbed) return;
+    for (const b of grabbed.group) {
+      b.held = false;
+      b.resting = false;
+      b.vx = 0;
+      b.vy = 0;
+    }
+    grabbed = null;
+    document.body.style.cursor = interactive ? "grab" : "default";
   }
 
   // Rolling picks the snow up off the ground and turns it into volume: the ball grows
@@ -363,9 +380,15 @@
       }
 
       b.vy += G * dt;
+      b.vx *= Math.max(0, 1 - dt * 2.5);       // air drag; nothing sails off
       b.y += b.vy * dt;
       b.x += b.vx * dt;
       b.rot += (b.vx * dt) / Math.max(6, b.r);
+
+      // The screen has edges. A ball that reaches one stops there.
+      if (b.x < b.r) { b.x = b.r; b.vx = 0; }
+      else if (b.x > w - b.r) { b.x = w - b.r; b.vx = 0; }
+      if (b.y < b.r) { b.y = b.r; if (b.vy < 0) b.vy = 0; }
 
       if (b.y >= restY) {
         if (b.vy > BREAK_SPEED) { shatter(b); balls.splice(i, 1); continue; }
@@ -503,6 +526,7 @@
 
   canvas.addEventListener("mousedown", (e) => {
     if (!interactive) return;
+    if (grabbed) releaseGrab();        // a mouseup lost outside the window
     const hit = ballAt(e.clientX, e.clientY);
 
     if (hit) {
@@ -511,15 +535,14 @@
       grabbed = {
         mode: "carry",
         group,
-        offsets: group.map((b) => ({ dx: b.x - e.clientX, dy: b.y - e.clientY })),
-        lastX: e.clientX, lastY: e.clientY, lastT: performance.now(), vx: 0, vy: 0
+        offsets: group.map((b) => ({ dx: b.x - e.clientX, dy: b.y - e.clientY }))
       };
     } else {
       // Only snow makes snowballs. Clicking the empty desktop does nothing at all,
       // rather than conjuring a ball out of thin air down on the drift.
       const ci = column(e.clientX);
       const surface = h - pile[ci];
-      if (pile[ci] < 3 || e.clientY < surface - 26) return;
+      if (pile[ci] < 1.5 || e.clientY < surface - 60) return;
 
       const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0,
                      vx: 0, vy: 0, held: true, resting: false };
@@ -533,45 +556,27 @@
     if (!grabbed) return;
 
     if (grabbed.mode === "carry") {
-      // Track how fast you are moving, so letting go while swinging throws it.
-      const now = performance.now();
-      const dt = Math.max(8, now - grabbed.lastT) / 1000;
-      grabbed.vx = (e.clientX - grabbed.lastX) / dt;
-      grabbed.vy = (e.clientY - grabbed.lastY) / dt;
-      grabbed.lastX = e.clientX;
-      grabbed.lastY = e.clientY;
-      grabbed.lastT = now;
-
       grabbed.group.forEach((b, i) => {
-        b.x = e.clientX + grabbed.offsets[i].dx;
-        b.y = e.clientY + grabbed.offsets[i].dy;
+        b.x = Math.max(b.r, Math.min(w - b.r, e.clientX + grabbed.offsets[i].dx));
+        b.y = Math.max(b.r, e.clientY + grabbed.offsets[i].dy);
       });
     } else {
       const b = grabbed.group[0];
-      rollThrough(b, e.clientX - grabbed.lastX);
-      grabbed.lastX = e.clientX;
-      b.x = e.clientX;
+      const x = Math.max(b.r, Math.min(w - b.r, e.clientX));
+      rollThrough(b, x - grabbed.lastX);
+      grabbed.lastX = x;
+      b.x = x;
       b.y = groundAt(b.x) - b.r;
     }
   });
 
-  window.addEventListener("mouseup", () => {
-    if (!grabbed) return;
-    const carried = grabbed.mode === "carry";
-    const vx = Math.max(-700, Math.min(700, (grabbed.vx || 0) * 0.4));
-    const vy = Math.max(-700, Math.min(700, (grabbed.vy || 0) * 0.4));
-
-    for (const b of grabbed.group) {
-      b.held = false;
-      b.resting = false;
-      b.vx = carried ? vx : 0;
-      b.vy = carried ? vy : 0;
-    }
-    grabbed = null;
-    document.body.style.cursor = interactive ? "grab" : "default";
-  });
+  window.addEventListener("mouseup", releaseGrab);
+  window.addEventListener("blur", releaseGrab);   // focus lost mid-drag
 
   // Escape is the way out of a mode that is swallowing every click.
+  // In a browser there is no mode to switch: the demo is always playable.
+  if (!overlay) window.setInteractive(true);
+
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && interactive) {
       const b = bridge();

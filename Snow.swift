@@ -563,7 +563,9 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         guard let primary = NSScreen.screens.first else { return }
 
         for overlay in overlays {
-            let frame = overlay.screen.frame
+            // Measured against the overlay window, not the screen: in Snowball Mode the
+            // window sits below the menu bar, and page coordinates start at its top.
+            let frame = overlay.window.frame
             let originX = frame.origin.x
             let originY = primary.frame.maxY - frame.maxY     // CoreGraphics counts down
             var payload: [[String: Any]] = []
@@ -585,8 +587,9 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
                 // A full-screen window has no top edge you can see, so nothing should
                 // appear to be lying on it. The same goes for anything reaching the
                 // very top of the screen, where the menu bar is.
-                let coversScreen = win.rect.width >= frame.width - 2
-                    && win.rect.height >= frame.height - 2
+                let screenFrame = overlay.screen.frame
+                let coversScreen = win.rect.width >= screenFrame.width - 2
+                    && win.rect.height >= screenFrame.height - 2
                 if coversScreen || y <= 2 { continue }
 
                 if y < 0 || y > frame.height || x > frame.width || x + win.rect.width < 0 { continue }
@@ -631,7 +634,9 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
     @objc private func toggleSnowballs() {
         snowballMode.toggle()
         overlays.forEach { $0.setInteractive(snowballMode) }
-        if !snowballMode { NSApp.hide(nil) }
+        // Activating is what gets key presses — Escape — to the overlay. Deactivating
+        // hands focus back; hiding would have taken the snow with it.
+        if snowballMode { NSApp.activate(ignoringOtherApps: true) } else { NSApp.deactivate() }
         refreshMenu()
     }
 
