@@ -167,21 +167,34 @@
   // snowing: Blizzard buries the screen in a couple of hours, Light takes all night.
   function perFlake() { return h * 0.004; }
 
-  function land(ci, depth) {
-    if (!settings.settle || pile[ci] >= pileCap) return;
-    // Weighted so a big near flake counts for more, normalised by the average weight
-    // (0.835) so the weighting does not change how long filling takes. The kernel sums
-    // to 1, so spreading it does not change the total depth laid down either.
+  // Weighted so a big near flake counts for more, normalised by the average weight
+  // (0.835) so the weighting does not change how fast things fill. The kernel sums to
+  // 1, so spreading a landing over five columns does not change the depth laid down.
+  function depositAt(arr, ci, depth, cap) {
+    if (!settings.settle || arr[ci] >= cap) return;
     const amount = perFlake() * (0.45 + depth) / 0.835;
     for (let k = -2; k <= 2; k++) {
       const i = ci + k;
-      if (i >= 0 && i < pile.length) pile[i] += amount * DEPOSIT[k + 2];
+      if (i >= 0 && i < arr.length) arr[i] = Math.min(cap, arr[i] + amount * DEPOSIT[k + 2]);
     }
   }
+
+  function land(ci, depth) { depositAt(pile, ci, depth, pileCap); }
 
   // Snow does not stand in towers: anything steeper than REPOSE slumps onto its
   // neighbour, which is also what spreads out the ridge a plough leaves behind.
   function settle(dt) {
+    creep(pile, scratch, dt);
+    for (const ledge of ledges.values()) {
+      creep(ledge.snow, ledge.scratch, dt);
+      // Nothing holds snow on at the ends of a window, so it tips off the edges.
+      const n = ledge.snow.length;
+      ledge.snow[0] *= 0.9;
+      ledge.snow[n - 1] *= 0.9;
+    }
+  }
+
+  function creep(pile, scratch, dt) {
     const n = pile.length;
     if (n < 3) return;
 
@@ -208,6 +221,60 @@
         pile[i] += move; pile[i + 1] -= move;
       }
     }
+  }
+
+  // ---- snow on windows ----------------------------------------------------
+
+  // The app sends the top edge of every window on this screen, along with the parts of
+  // that edge which are actually visible. Snow lands on them and rides along when the
+  // window is moved, because the height map is keyed to the window, not to a position.
+  const ledges = new Map();
+
+  function ledgeCap() { return h * 0.05; }
+
+  window.setLedges = (list) => {
+    const seen = new Set();
+    for (const l of list || []) {
+      seen.add(l.id);
+      const cols = Math.max(2, Math.ceil(l.w / COL_W));
+      let ledge = ledges.get(l.id);
+      if (!ledge) {
+        ledge = { snow: new Float32Array(cols), scratch: new Float32Array(cols) };
+        ledges.set(l.id, ledge);
+      } else if (ledge.snow.length !== cols) {
+        const next = new Float32Array(cols);
+        for (let i = 0; i < cols; i++) {
+          next[i] = ledge.snow[Math.min(ledge.snow.length - 1,
+                                        Math.floor((i * ledge.snow.length) / cols))];
+        }
+        ledge.snow = next;
+        ledge.scratch = new Float32Array(cols);
+      }
+      ledge.x = l.x; ledge.y = l.y; ledge.w = l.w;
+      ledge.spans = (l.spans && l.spans.length) ? l.spans : [[0, l.w]];
+    }
+    for (const id of [...ledges.keys()]) if (!seen.has(id)) ledges.delete(id);
+  };
+
+  function onVisibleSpan(ledge, offset) {
+    for (const span of ledge.spans) if (offset >= span[0] && offset <= span[1]) return true;
+    return false;
+  }
+
+  // Does this flake come to rest on a window instead of reaching the ground?
+  function landOnLedge(f) {
+    for (const ledge of ledges.values()) {
+      if (f.x < ledge.x || f.x > ledge.x + ledge.w) continue;
+      const offset = f.x - ledge.x;
+      if (!onVisibleSpan(ledge, offset)) continue;
+      const ci = Math.min(ledge.snow.length - 1, Math.max(0, (offset / COL_W) | 0));
+      const surface = ledge.y - ledge.snow[ci];
+      if (f.y + f.r >= surface && f.y - f.r < surface + 22) {
+        depositAt(ledge.snow, ci, f.depth, ledgeCap());
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---- the plough ---------------------------------------------------------
@@ -373,23 +440,38 @@
     if (deepest >= (settings.autoPlowPercent / 100) * h) window.sendPlow();
   }
 
+  // Curves through the midpoints rather than joining column tops, so a surface reads
+  // as snow instead of as a sawtooth. Used for the ground and for every window ledge.
+  function drawSurface(arr, originX, baseY, i0, i1) {
+    if (i1 <= i0) return;
+    ctx.beginPath();
+    ctx.moveTo(originX + i0 * COL_W, baseY);
+    ctx.lineTo(originX + i0 * COL_W, baseY - arr[i0]);
+    for (let i = i0; i < i1; i++) {
+      const x0 = originX + i * COL_W, x1 = originX + (i + 1) * COL_W;
+      ctx.quadraticCurveTo(x0, baseY - arr[i], (x0 + x1) / 2, baseY - (arr[i] + arr[i + 1]) / 2);
+    }
+    ctx.lineTo(originX + i1 * COL_W, baseY - arr[i1]);
+    ctx.lineTo(originX + i1 * COL_W, baseY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function drawPile() {
     if (!pile.length) return;
     ctx.globalAlpha = 0.96;
     ctx.fillStyle = "#f2f6ff";
-    ctx.beginPath();
-    ctx.moveTo(0, h);
-    ctx.lineTo(0, h - pile[0]);
-    // Curve through the midpoints rather than joining the column tops, so the surface
-    // reads as snow instead of as a sawtooth.
-    for (let i = 0; i < pile.length - 1; i++) {
-      const x0 = i * COL_W, x1 = (i + 1) * COL_W;
-      ctx.quadraticCurveTo(x0, h - pile[i], (x0 + x1) / 2, h - (pile[i] + pile[i + 1]) / 2);
+    drawSurface(pile, 0, h, 0, pile.length - 1);
+
+    // Snow lying on the top edge of every window, drawn only where that edge is not
+    // covered by a window in front of it.
+    for (const ledge of ledges.values()) {
+      for (const span of ledge.spans) {
+        const i0 = Math.max(0, Math.floor(span[0] / COL_W));
+        const i1 = Math.min(ledge.snow.length - 1, Math.ceil(span[1] / COL_W));
+        drawSurface(ledge.snow, ledge.x, ledge.y, i0, i1);
+      }
     }
-    ctx.lineTo(w, h - pile[pile.length - 1]);
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    ctx.fill();
     ctx.globalAlpha = 1;
   }
 
@@ -466,6 +548,11 @@
       const push = wind * (0.3 + f.depth) + Math.sin(f.phase) * f.sway;
       f.vx += (push - f.vx) * Math.min(1, dt * 2.2);
       f.x += f.vx * dt;
+
+      if (settings.settle && landOnLedge(f)) {
+        Object.assign(f, makeFlake(false));
+        continue;
+      }
 
       // Landing on the drift rather than on the bottom of the screen.
       const ci = column(f.x);
@@ -547,7 +634,10 @@
     applyDepthCap();
   };
 
-  window.clearPile = () => { pile.fill(0); };
+  window.clearPile = () => {
+    pile.fill(0);
+    for (const ledge of ledges.values()) ledge.snow.fill(0);
+  };
   window.getPile = () => Array.from(pile);
   window.setPile = (heights) => {
     if (!Array.isArray(heights) || !heights.length) return;
