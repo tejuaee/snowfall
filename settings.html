@@ -40,6 +40,13 @@
   }
   button.primary { background: var(--accent); border-color: transparent; color: #fff; }
   button:active { opacity: .75; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .buttons + .buttons { margin-top: 10px; }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .card { border-color: var(--ink); }
+  }
 </style>
 </head>
 <body>
@@ -60,20 +67,20 @@
 
     <div class="control">
       <div class="row"><label for="depth">Deepest it gets</label>
-        <span class="value" id="depthValue"></span></div>
-      <input type="range" id="depth" min="5" max="100" step="5">
-      <p class="note">A share of the whole screen. At 100% the snow is allowed to cover
-        everything.</p>
+        <span class="value" id="depthValue" aria-live="polite"></span></div>
+      <input type="range" id="depth" min="5" max="100" step="5" aria-describedby="depthNote">
+      <p class="note" id="depthNote">A share of the whole screen. At 100% the snow is
+        allowed to cover everything.</p>
     </div>
   </div>
 
   <div class="card">
     <div class="control">
       <div class="row"><label for="auto">Plough by itself</label>
-        <span class="value" id="autoValue"></span></div>
-      <input type="range" id="auto" min="0" max="100" step="5">
-      <p class="note">Sends the truck out once the snow is that deep. All the way left
-        means only when you ask.</p>
+        <span class="value" id="autoValue" aria-live="polite"></span></div>
+      <input type="range" id="auto" min="0" max="100" step="5" aria-describedby="autoNote">
+      <p class="note" id="autoNote">Sends the truck out once the snow is that deep. All
+        the way left means only when you ask.</p>
     </div>
 
     <div class="control">
@@ -99,8 +106,12 @@
   </div>
 
   <div class="buttons">
-    <button class="primary" id="plow">Send the plough</button>
-    <button id="clear">Clear the snow</button>
+    <button class="primary" id="plow" type="button">Send the plough</button>
+    <button id="clear" type="button">Clear the snow</button>
+  </div>
+  <div class="buttons">
+    <button id="snowballs" type="button">Snowball Mode</button>
+    <button id="reset" type="button">Reset to defaults</button>
   </div>
 
 <script>
@@ -146,6 +157,17 @@
   }
   document.getElementById("plow").addEventListener("click", () => send({ type: "plow" }));
   document.getElementById("clear").addEventListener("click", () => send({ type: "clear" }));
+  document.getElementById("snowballs")
+    .addEventListener("click", () => send({ type: "snowball" }));
+
+  const DEFAULTS = {
+    settle: true, maxDepthPercent: 100, autoPlowPercent: 0,
+    plowCrossSeconds: 7, truckPercent: 7, plowDirection: 0
+  };
+  document.getElementById("reset").addEventListener("click", () => {
+    window.loadSettings(DEFAULTS);
+    send({ type: "settings", settings: collect() });
+  });
 
   // The app hands the stored settings in once the page is up.
   window.loadSettings = (s) => {
