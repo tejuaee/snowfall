@@ -68,6 +68,19 @@ final class SnowOverlay {
         window.orderFrontRegardless()
     }
 
+    private func run(_ js: String, delay: TimeInterval = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.web.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+
+    func apply(_ settings: SnowSettings, delay: TimeInterval = 0) {
+        run("window.applySettings && window.applySettings(\(settings.json));", delay: delay)
+    }
+
+    func sendPlow() { run("window.sendPlow && window.sendPlow();") }
+    func clearPile() { run("window.clearPile && window.clearPile();") }
+
     func setPaused(_ paused: Bool) {
         web.evaluateJavaScript("window.setPaused && window.setPaused(\(paused));",
                                completionHandler: nil)
@@ -94,6 +107,82 @@ private extension URL {
     }
 }
 
+// MARK: - Settings
+
+struct SnowSettings: Codable, Equatable {
+    var fillMinutes: Double = 60      // how long a full drift takes; 0 = never settles
+    var plowSpeed: Double = 260       // px per second
+    var plowScale: Double = 1
+    var autoPlowDepth: Double = 0     // 0 = only when you ask for it
+    var plowDirection: Int = 0        // 0 alternates, ±1 always from that side
+
+    var json: String {
+        guard let data = try? JSONEncoder().encode(self),
+              let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
+    }
+
+    static func load() -> SnowSettings {
+        guard let data = UserDefaults.standard.data(forKey: "settings"),
+              let stored = try? JSONDecoder().decode(SnowSettings.self, from: data)
+        else { return SnowSettings() }
+        return stored
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: "settings")
+        }
+    }
+}
+
+/// The one window in this app you can actually click: sliders for the drift and the
+/// plough, talking back over a WebKit message handler.
+final class SettingsWindow: NSObject, WKScriptMessageHandler {
+    let window: NSWindow
+    private let web: WKWebView
+    private let handle: ([String: Any]) -> Void
+
+    init(pageURL: URL, settings: SnowSettings, handle: @escaping ([String: Any]) -> Void) {
+        self.handle = handle
+
+        let content = WKUserContentController()
+        let config = WKWebViewConfiguration()
+        config.userContentController = content
+        config.websiteDataStore = .nonPersistent()
+        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 580), configuration: config)
+
+        window = NSWindow(contentRect: web.frame,
+                          styleMask: [.titled, .closable, .miniaturizable],
+                          backing: .buffered, defer: false)
+        super.init()
+
+        content.add(self, name: "snowfall")
+        window.title = "Snowfall"
+        window.contentView = web
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        web.loadFileURL(pageURL, allowingReadAccessTo: pageURL.deletingLastPathComponent())
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.web.evaluateJavaScript(
+                "window.loadSettings && window.loadSettings(\(settings.json));",
+                completionHandler: nil)
+        }
+    }
+
+    func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func userContentController(_ controller: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        handle(body)
+    }
+}
+
 // MARK: - Remembered settings
 
 enum Defaults {
@@ -116,6 +205,8 @@ final class SnowController: NSObject, NSApplicationDelegate {
     private var overlays: [SnowOverlay] = []
     private var status: NSStatusItem?
     private var intensity = Defaults.intensity   // 1 light · 2 medium · 3 blizzard
+    private var settings = SnowSettings.load()
+    private var settingsWindow: SettingsWindow?
     private var snowing = true
     private let pageURL: URL
 
@@ -141,6 +232,7 @@ final class SnowController: NSObject, NSApplicationDelegate {
             overlays.append(SnowOverlay(screen: screen, pageURL: pageURL,
                                         intensity: intensity, powerSaver: powerSaving))
         }
+        overlays.forEach { $0.apply(settings, delay: 0.4) }
         snowing = true
         refreshMenu()
     }
@@ -328,6 +420,22 @@ final class SnowController: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
+        let plow = NSMenuItem(title: "Send the Plough",
+                              action: #selector(sendPlow), keyEquivalent: "p")
+        plow.target = self
+        menu.addItem(plow)
+
+        let clear = NSMenuItem(title: "Clear the Snow",
+                               action: #selector(clearSnow), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+
+        let prefs = NSMenuItem(title: "Snow Settings…",
+                               action: #selector(openSettings), keyEquivalent: ",")
+        prefs.target = self
+        menu.addItem(prefs)
+
+        menu.addItem(.separator())
         let ease = NSMenuItem(title: "Ease Off on Battery",
                               action: #selector(toggleEaseOff), keyEquivalent: "b")
         ease.target = self
@@ -347,6 +455,38 @@ final class SnowController: NSObject, NSApplicationDelegate {
             refreshMenu()
         } else {
             startSnowing()
+        }
+    }
+
+    @objc private func sendPlow() { overlays.forEach { $0.sendPlow() } }
+    @objc private func clearSnow() { overlays.forEach { $0.clearPile() } }
+
+    @objc private func openSettings() {
+        if settingsWindow == nil {
+            let page = pageURL.deletingLastPathComponent()
+                .appendingPathComponent("settings.html")
+            settingsWindow = SettingsWindow(pageURL: page, settings: settings) {
+                [weak self] body in self?.received(body)
+            }
+        }
+        settingsWindow?.show()
+    }
+
+    /// Messages from the settings page. Anything it sends is applied to every screen
+    /// and written straight to disk, so the overlay and the window never disagree.
+    private func received(_ body: [String: Any]) {
+        switch body["type"] as? String {
+        case "settings":
+            guard let raw = body["settings"] as? [String: Any],
+                  let data = try? JSONSerialization.data(withJSONObject: raw),
+                  let next = try? JSONDecoder().decode(SnowSettings.self, from: data)
+            else { return }
+            settings = next
+            settings.save()
+            overlays.forEach { $0.apply(settings) }
+        case "plow": sendPlow()
+        case "clear": clearSnow()
+        default: break
         }
     }
 

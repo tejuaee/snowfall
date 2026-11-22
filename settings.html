@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snowfall Settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6fa; --card: #ffffff; --ink: #11161f; --muted: #5c6678;
+    --line: #dfe4ee; --accent: #2f6fe4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1f27; --card: #232834; --ink: #eef2f8; --muted: #9aa5b8;
+            --line: #333a48; --accent: #6fa0ff; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 18px 20px 22px; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+  h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .row + .control { margin-top: 8px; }
+  .control { margin-bottom: 16px; }
+  .control:last-child { margin-bottom: 0; }
+  label { font-weight: 590; }
+  .value { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
+  select { width: 100%; margin-top: 6px; padding: 5px 8px; border-radius: 7px;
+           border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+           font: inherit; }
+  .buttons { display: flex; gap: 10px; }
+  button {
+    flex: 1; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); font: inherit; font-weight: 590;
+  }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button:active { opacity: .75; }
+</style>
+</head>
+<body>
+  <h1>Snowfall</h1>
+  <p class="sub">Changes apply to the snow straight away.</p>
+
+  <div class="card">
+    <div class="control">
+      <div class="row"><label for="fill">Snow settles</label></div>
+      <select id="fill">
+        <option value="0">Never — nothing piles up</option>
+        <option value="5">A full drift in 5 minutes</option>
+        <option value="15">A full drift in 15 minutes</option>
+        <option value="60">A full drift in an hour</option>
+        <option value="240">A full drift in 4 hours</option>
+        <option value="720">A full drift in 12 hours</option>
+      </select>
+      <p class="note">A full drift is the bottom quarter of the screen. The engine counts
+        the flakes actually landing and paces itself to hit the time you pick.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="control">
+      <div class="row"><label for="auto">Plough by itself</label>
+        <span class="value" id="autoValue"></span></div>
+      <input type="range" id="auto" min="0" max="200" step="10">
+      <p class="note">Sends the truck out once the drift gets that deep. All the way left
+        means only when you ask.</p>
+    </div>
+
+    <div class="control">
+      <div class="row"><label for="speed">Plough speed</label>
+        <span class="value" id="speedValue"></span></div>
+      <input type="range" id="speed" min="80" max="600" step="10">
+    </div>
+
+    <div class="control">
+      <div class="row"><label for="scale">Truck size</label>
+        <span class="value" id="scaleValue"></span></div>
+      <input type="range" id="scale" min="0.6" max="2" step="0.1">
+    </div>
+
+    <div class="control">
+      <div class="row"><label for="dir">Comes from</label></div>
+      <select id="dir">
+        <option value="0">Alternating sides</option>
+        <option value="1">The left</option>
+        <option value="-1">The right</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button class="primary" id="plow">Send the plough</button>
+    <button id="clear">Clear the snow</button>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+  const bridge = window.webkit && window.webkit.messageHandlers
+    && window.webkit.messageHandlers.snowfall;
+  const send = (msg) => { if (bridge) bridge.postMessage(msg); };
+
+  const fill = document.getElementById("fill");
+  const auto = document.getElementById("auto");
+  const speed = document.getElementById("speed");
+  const scale = document.getElementById("scale");
+  const dir = document.getElementById("dir");
+
+  function labels() {
+    document.getElementById("autoValue").textContent =
+      Number(auto.value) === 0 ? "only when asked" : `at ${auto.value} px deep`;
+    document.getElementById("speedValue").textContent = `${speed.value} px/s`;
+    document.getElementById("scaleValue").textContent =
+      `${Number(scale.value).toFixed(1)}×`;
+  }
+
+  function collect() {
+    return {
+      fillMinutes: Number(fill.value),
+      autoPlowDepth: Number(auto.value),
+      plowSpeed: Number(speed.value),
+      plowScale: Number(scale.value),
+      plowDirection: Math.round(Number(dir.value))
+    };
+  }
+
+  for (const el of [fill, auto, speed, scale, dir]) {
+    el.addEventListener("input", () => { labels(); send({ type: "settings", settings: collect() }); });
+  }
+  document.getElementById("plow").addEventListener("click", () => send({ type: "plow" }));
+  document.getElementById("clear").addEventListener("click", () => send({ type: "clear" }));
+
+  // The app hands the stored settings in once the page is up.
+  window.loadSettings = (s) => {
+    if (!s) return;
+    fill.value = String(s.fillMinutes ?? 60);
+    auto.value = String(s.autoPlowDepth ?? 0);
+    speed.value = String(s.plowSpeed ?? 260);
+    scale.value = String(s.plowScale ?? 1);
+    dir.value = String(s.plowDirection ?? 0);
+    labels();
+  };
+  labels();
+})();
+</script>
+</body>
+</html>

@@ -21,7 +21,7 @@ else
 fi
 
 echo "· checking the hooks the app calls"
-for hook in setIntensity setPaused setPowerSaver; do
+for hook in setIntensity setPaused setPowerSaver applySettings sendPlow clearPile; do
   grep -q "window.$hook = " index.html || { echo "  missing window.$hook"; exit 1; }
 done
 
