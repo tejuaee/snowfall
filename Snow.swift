@@ -464,6 +464,7 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "❄"
         item.button?.toolTip = "Snowfall"
+        item.button?.setAccessibilityLabel("Snowfall — snow, plough and snowballs")
         item.menu = NSMenu()
         status = item
         refreshMenu()
@@ -483,6 +484,8 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         menu.addItem(state)
         menu.addItem(.separator())
 
+        menu.addItem(sectionHeader("Snow"))
+
         let toggle = NSMenuItem(title: snowing ? "Stop Snow" : "Start Snow",
                                 action: #selector(toggleSnow), keyEquivalent: "s")
         toggle.target = self
@@ -499,6 +502,7 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         }
 
         menu.addItem(.separator())
+        menu.addItem(sectionHeader("Plough"))
         let plow = NSMenuItem(title: "Send the Plough",
                               action: #selector(sendPlow), keyEquivalent: "p")
         plow.target = self
@@ -509,6 +513,8 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         clear.target = self
         menu.addItem(clear)
 
+        menu.addItem(.separator())
+        menu.addItem(sectionHeader("Play"))
         let snowballs = NSMenuItem(title: "Snowball Mode",
                                    action: #selector(toggleSnowballs), keyEquivalent: "n")
         snowballs.target = self
@@ -699,10 +705,23 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
             settings = next
             settings.save()
             overlays.forEach { $0.apply(settings) }
+        case "snowball":
+            if !snowballMode { toggleSnowballs() }
         case "plow": sendPlow()
         case "clear": clearSnow()
         default: break
         }
+    }
+
+    /// A dimmed, unselectable title, so a menu of a dozen items reads as three groups.
+    private func sectionHeader(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+        return item
     }
 
     @objc private func toggleEaseOff() {
