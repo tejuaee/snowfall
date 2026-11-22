@@ -489,6 +489,16 @@
 
   function drawBalls() {
     for (const b of balls) {
+      // What it is standing on, darkened under it. Without a contact shadow a ball
+      // looks pasted on rather than resting.
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = "#43536e";
+      ctx.beginPath();
+      ctx.ellipse(b.x, Math.min(h, b.y + b.r) + 1, b.r * 0.95,
+                  Math.max(2, b.r * 0.2), 0, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
       const shade = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.15,
                                              b.x, b.y, b.r);
       shade.addColorStop(0, "#ffffff");
@@ -497,6 +507,21 @@
       ctx.beginPath();
       ctx.arc(b.x, b.y, b.r, 0, TAU);
       ctx.fill();
+
+      // The same grain as the ground, clipped to the ball: packed snow, not plastic.
+      if (grain) {
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = grain;
+        ctx.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";      // rim light along the top edge
+      ctx.lineWidth = Math.max(0.8, b.r * 0.055);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, Math.max(1, b.r - ctx.lineWidth / 2), Math.PI * 1.08, Math.PI * 1.78);
+      ctx.stroke();
 
       // A speck of grit so you can see it turning as it rolls.
       ctx.fillStyle = "rgba(150,170,195,0.5)";
