@@ -1004,6 +1004,7 @@
   let timer = 0, raf = 0, fallback = 0;
   let last = performance.now();
   let lastDraw = last;
+  let framesDrawn = 0;
 
   function schedule() {
     if (paused) return;
@@ -1040,6 +1041,7 @@
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     lastDraw = now;
+    framesDrawn++;
 
     windTimer -= dt;
     if (windTimer <= 0) {
@@ -1187,6 +1189,9 @@
     Object.assign(settings, next || {});
     applyDepthCap();
   };
+
+  // For ci/check-page.swift: enough to tell whether the engine is alive.
+  window.__snowState = () => ({ flakes: flakes.length, frames: framesDrawn });
 
   window.clearPile = () => {
     pile.fill(0);
