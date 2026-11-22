@@ -348,6 +348,42 @@
 
   function groundAt(x) { return h - pile[column(x)]; }
 
+  // Snow lies on the ground and on every window ledge, and all of it should be rollable.
+  // A surface is just a height map, where it starts across the screen, and the line it
+  // is measured down from.
+  function groundSurface() {
+    return { arr: pile, originX: 0, baseY: h };
+  }
+
+  function indexOn(surface, x) {
+    const i = ((x - surface.originX) / COL_W) | 0;
+    return Math.min(surface.arr.length - 1, Math.max(0, i));
+  }
+
+  function topOf(surface, x) {
+    return surface.baseY - surface.arr[indexOn(surface, x)];
+  }
+
+  /// The snow surface the pointer is on, if it is on any: the nearest one within reach
+  /// that actually has snow on it.
+  function surfaceUnder(x, y) {
+    const candidates = [groundSurface()];
+    for (const ledge of ledges.values()) {
+      if (x < ledge.x || x > ledge.x + ledge.w) continue;
+      if (!onVisibleSpan(ledge, x - ledge.x)) continue;
+      candidates.push({ arr: ledge.snow, originX: ledge.x, baseY: ledge.y });
+    }
+
+    let best = null;
+    for (const surface of candidates) {
+      if (surface.arr[indexOn(surface, x)] < 1.5) continue;    // nothing to pick up
+      const reach = Math.abs(topOf(surface, x) - y);
+      if (reach > 60) continue;
+      if (!best || reach < best.reach) best = { ...surface, reach };
+    }
+    return best;
+  }
+
   function ballAt(x, y) {
     for (let i = balls.length - 1; i >= 0; i--) {
       const b = balls[i];
@@ -374,17 +410,18 @@
   // Rolling picks the snow up off the ground and turns it into volume: the ball grows
   // by the area it sweeps away, so a long roll through deep snow makes a big ball and
   // leaves a clean track behind it.
-  function rollThrough(b, dx) {
+  function rollThrough(b, dx, surface) {
     const distance = Math.abs(dx);
     if (!distance) return;
     b.rot += dx / Math.max(6, b.r);
 
-    const i0 = Math.max(0, column(b.x - b.r));
-    const i1 = Math.min(pile.length - 1, column(b.x + b.r));
+    const arr = surface.arr;
+    const i0 = indexOn(surface, b.x - b.r);
+    const i1 = indexOn(surface, b.x + b.r);
     let taken = 0;
     for (let i = i0; i <= i1; i++) {
-      const bite = Math.min(pile[i], distance * 0.3);
-      pile[i] -= bite;
+      const bite = Math.min(arr[i], distance * 0.3);
+      arr[i] -= bite;
       taken += bite * COL_W;
     }
     if (taken > 0) {
@@ -398,6 +435,15 @@
   function supportFor(b) {
     let surface = groundAt(b.x);
     let on = null;
+
+    // A window ledge holds a ball up as readily as the ground does.
+    for (const ledge of ledges.values()) {
+      if (b.x < ledge.x || b.x > ledge.x + ledge.w) continue;
+      if (!onVisibleSpan(ledge, b.x - ledge.x)) continue;
+      const top = ledge.y - ledge.snow[indexOn({ arr: ledge.snow, originX: ledge.x }, b.x)];
+      if (top >= b.y && top < surface) { surface = top; on = null; }
+    }
+
     for (const other of balls) {
       if (other === b || other.held || !other.resting) continue;
       // Only something underneath can hold a ball up. Without this test the lower ball
@@ -632,16 +678,15 @@
         offsets: group.map((b) => ({ dx: b.x - e.clientX, dy: b.y - e.clientY }))
       };
     } else {
-      // Only snow makes snowballs. Clicking the empty desktop does nothing at all,
-      // rather than conjuring a ball out of thin air down on the drift.
-      const ci = column(e.clientX);
-      const surface = h - pile[ci];
-      if (pile[ci] < 1.5 || e.clientY < surface - 60) return;
+      // Only snow makes snowballs — the drift, or the snow lying on a window or a
+      // widget. Clicking bare desktop does nothing at all.
+      const surface = surfaceUnder(e.clientX, e.clientY);
+      if (!surface) return;
 
-      const ball = { x: e.clientX, y: groundAt(e.clientX) - 9, r: 9, rot: 0,
+      const ball = { x: e.clientX, y: topOf(surface, e.clientX) - 9, r: 9, rot: 0,
                      vx: 0, vy: 0, held: true, resting: false };
       balls.push(ball);
-      grabbed = { mode: "roll", group: [ball], lastX: e.clientX };
+      grabbed = { mode: "roll", group: [ball], lastX: e.clientX, surface };
     }
     document.body.style.cursor = "grabbing";
   });
@@ -656,12 +701,17 @@
         b.y = Math.max(b.r, e.clientY + grabbed.offsets[i].dy);
       });
     } else {
+      // Rolling stays on the surface it started from, between that surface's ends.
       const b = grabbed.group[0];
-      const x = Math.max(b.r, Math.min(w - b.r, e.clientX));
-      rollThrough(b, x - grabbed.lastX);
+      const surface = grabbed.surface;
+      const left = Math.max(b.r, surface.originX);
+      const right = Math.min(w - b.r, surface.originX + (surface.arr.length - 1) * COL_W);
+      const x = Math.max(left, Math.min(right, e.clientX));
+
+      rollThrough(b, x - grabbed.lastX, surface);
       grabbed.lastX = x;
       b.x = x;
-      b.y = groundAt(b.x) - b.r;
+      b.y = topOf(surface, b.x) - b.r;
     }
   });
 

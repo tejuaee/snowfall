@@ -147,8 +147,10 @@ second.
 
 ## Snowballs and snowmen
 
-❄ menu → **Snowball Mode**. Click the snow and drag sideways: the ball picks up the depth
-it sweeps, growing by the area it takes and leaving a clean track behind it. Let go and it
+❄ menu → **Snowball Mode**. Click any snow and drag sideways — the drift along the bottom,
+or the snow lying on a window or a widget. The ball picks up the depth it sweeps, growing
+by the area it takes and leaving a clean track behind it, and it stays on the surface it
+started from. Let one go over a window ledge deep enough to hold it and it rests there. Let go and it
 rests where it lands — or on top of the ball below it. Stack two and the top one gets coal
 eyes, a carrot and a smile, and the one underneath gets buttons. Grab a ball again to pick
 it up and move it.
