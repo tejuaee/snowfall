@@ -34,4 +34,20 @@ echo "· building and loading the screen saver"
 swiftc -O ci/check-saver.swift -o /tmp/snowfall-saver-check -framework ScreenSaver
 /tmp/snowfall-saver-check build/Snowfall.saver
 
+# The mistake this catches: commits authored with an address that is not linked to the
+# GitHub account owning the repo are credited to nobody. The commits land, the
+# contribution graph stays empty, and nothing anywhere says why.
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo "· checking who the commits will belong to"
+  me=$(gh api user --jq .login 2>/dev/null || true)
+  id=$(gh api user --jq .id 2>/dev/null || true)
+  email=$(git config user.email 2>/dev/null || true)
+  if [[ -n "$me" && -n "$email" && "$email" != *"+${me}@users.noreply.github.com" ]]; then
+    echo "  warning: commits here are authored as $email"
+    echo "  GitHub credits a commit only when that address is linked to the account that"
+    echo "  owns this repository ($me). If the graph stays empty, this is why. Fix with:"
+    echo "    git config user.email ${id}+${me}@users.noreply.github.com"
+  fi
+fi
+
 echo "all good ❄"
