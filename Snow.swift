@@ -20,14 +20,22 @@ final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
-final class SnowOverlay {
+final class SnowOverlay: NSObject, WKNavigationDelegate {
     let window: NSWindow
     let web: WKWebView
     let screen: NSScreen
+    let pageURL: URL
+
+    /// Called when the page has had to be loaded again, so the app can put back
+    /// everything the page was holding: settings, the drift, the ledges, the mode.
+    var onReload: (() -> Void)?
+    private(set) var paused = false
+    private var lastFrames = -1
 
     init(screen: NSScreen, pageURL: URL, intensity: Int, powerSaver: Bool,
          handler: WKScriptMessageHandler?) {
         self.screen = screen
+        self.pageURL = pageURL
         let config = WKWebViewConfiguration()
         if let handler {
             let content = WKUserContentController()
@@ -51,6 +59,9 @@ final class SnowOverlay {
                                backing: .buffered,
                                defer: false,
                                screen: screen)
+
+        super.init()
+        web.navigationDelegate = self
 
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -81,6 +92,35 @@ final class SnowOverlay {
                         allowingReadAccessTo: pageURL.deletingLastPathComponent())
         push(intensity: intensity, powerSaver: powerSaver, delay: 0.35)
         window.orderFrontRegardless()
+    }
+
+    // MARK: Staying alive
+
+    /// WebKit runs the page in its own process, and over a long session the system can
+    /// decide to reclaim it. Nothing used to notice: the overlay simply went blank and
+    /// stayed blank. Now it is loaded again and the app restores what it was showing.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        reload()
+    }
+
+    func reload() {
+        lastFrames = -1
+        web.loadFileURL(pageURL.appendingQueryItem("overlay", "1"),
+                        allowingReadAccessTo: pageURL.deletingLastPathComponent())
+        onReload?()
+    }
+
+    /// Asks the page how many frames it has drawn. Reports true if it is not answering
+    /// at all, or if it should be drawing and the count has not moved since last time.
+    func checkStalled(_ report: @escaping (Bool) -> Void) {
+        web.evaluateJavaScript("window.__snowState ? window.__snowState().frames : null") {
+            [weak self] value, _ in
+            guard let self else { return }
+            guard let frames = value as? Int else { return report(true) }
+            let stalled = !self.paused && self.lastFrames >= 0 && frames == self.lastFrames
+            self.lastFrames = frames
+            report(stalled)
+        }
     }
 
     private func run(_ js: String, delay: TimeInterval = 0) {
@@ -129,6 +169,7 @@ final class SnowOverlay {
     func clearPile() { run("window.clearPile && window.clearPile();") }
 
     func setPaused(_ paused: Bool) {
+        self.paused = paused
         web.evaluateJavaScript("window.setPaused && window.setPaused(\(paused));",
                                completionHandler: nil)
     }
@@ -280,6 +321,10 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.publishLedges()
         }
+
+        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            self?.checkHealth()
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -300,6 +345,10 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
         for (index, overlay) in overlays.enumerated() {
             if let stored = UserDefaults.standard.string(forKey: "pile.\(index)") {
                 overlay.restorePile(stored)
+            }
+            overlay.onReload = { [weak self, weak overlay] in
+                guard let self, let overlay else { return }
+                self.restore(overlay)
             }
         }
 
@@ -644,6 +693,42 @@ final class SnowController: NSObject, NSApplicationDelegate, WKScriptMessageHand
             if b < span.1 { out.append((b, span.1)) }
         }
         return out
+    }
+
+    /// Everything a freshly loaded page needs to look like the one it replaced.
+    private func restore(_ overlay: SnowOverlay) {
+        overlay.push(intensity: intensity, powerSaver: powerSaving, delay: 0.4)
+        overlay.apply(settings, delay: 0.45)
+        if let index = overlays.firstIndex(where: { $0 === overlay }),
+           let stored = UserDefaults.standard.string(forKey: "pile.\(index)") {
+            overlay.restorePile(stored, delay: 0.5)
+        }
+        if snowballMode { overlay.setInteractive(true, level: overlayLevel) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.publishLedges()
+        }
+    }
+
+    /// Long sessions are where the quiet failures live: a notification that never
+    /// arrived leaving the snow paused for good, or a page that has stopped drawing.
+    /// Rather than trust that every notification was delivered, ask the system.
+    private func checkHealth() {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        let locked = session?["CGSSessionScreenIsLocked"] as? Bool ?? false
+        let asleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
+
+        if locked != screenLocked || asleep != displayAsleep {
+            screenLocked = locked
+            displayAsleep = asleep
+        }
+        updatePause()
+
+        for overlay in overlays {
+            overlay.checkStalled { [weak overlay] stalled in
+                guard stalled, let overlay else { return }
+                overlay.reload()
+            }
+        }
     }
 
     private func savePiles() {
