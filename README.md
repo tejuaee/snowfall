@@ -1,6 +1,6 @@
 # Snowfall ❄
 
-Falling snow for your macOS desktop. A transparent, click-through overlay on every
+Falling snow for your desktop — macOS, Windows and Linux. A transparent, click-through overlay on every
 display — the flakes drift down over your windows and the menu bar, and the mouse
 goes straight through them.
 
@@ -28,6 +28,52 @@ Stop it again any time with `./snow.sh stop`. Your intensity choice is remembere
 
 Needs macOS with the Xcode command line tools (`xcode-select --install`). The app runs
 as a menu bar accessory: no Dock icon, and it never takes focus from what you're doing.
+
+## Windows and Linux
+
+The same snow, the same drift and plough, the same Snowball Mode — in an Electron shell
+(`desktop/`) instead of the Swift one. Needs [Node.js](https://nodejs.org) 18 or newer;
+Electron itself is installed on the first run.
+
+**Windows** — double-click `snow.cmd`, or from a terminal:
+
+```bat
+git clone https://github.com/tejuaee/snowfall.git
+cd snowfall
+snow
+```
+
+**Linux**:
+
+```bash
+git clone https://github.com/tejuaee/snowfall.git
+cd snowfall
+./snow.sh
+```
+
+A ❄ appears in the system tray (taskbar corner on Windows, the panel on Linux) with the
+same menu as on the Mac. `snow stop` / `./snow.sh stop` stops it. Settings, intensity and
+the drift are kept in `%APPDATA%\snowfall\state.json` or `~/.config/snowfall/state.json`.
+
+What is different from the Mac:
+
+- **No snow on windows.** Neither system offers the permission-free window list the Mac
+  version reads ledges from, so the snow lies on the ground only.
+- **Snowball Mode** leaves the taskbar or panel uncovered while it is on, so the tray icon
+  stays clickable; Escape, a double click and **Leave** still get you out.
+- **Pausing** follows screen lock and sleep (`lock-screen` is reported on Windows and some
+  Linux desktops; the twenty-second health check catches the rest). There is no occlusion
+  signal, so snow behind a full-screen game keeps falling.
+- **Linux needs a compositor** for transparency — any modern GNOME, KDE, Xfce (with
+  compositing on) or Cinnamon session has one. Wayland sessions run it through XWayland,
+  because Wayland does not let an app keep a window above the others; set
+  `SNOWFALL_WAYLAND=1` to try native Wayland anyway.
+- **Ubuntu 24.04 and later**: if Electron stops with *"The SUID sandbox helper binary was
+  found, but is not configured correctly"*, give the sandbox helper the rights it expects
+  once:
+  `sudo chown root desktop/node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 desktop/node_modules/electron/dist/chrome-sandbox`.
+- **Reduce Motion** is read from the system just the same: Windows' *Animation effects*
+  setting, or the GTK *enable-animations* setting on Linux.
 
 ## Just the web page
 
@@ -81,6 +127,10 @@ Two consequences:
 | `Saver.swift` | `Snowfall.saver`: the same snow as a `ScreenSaverView`, drawn natively with Core Graphics, for the idle and lock screen. |
 | `install-saver.sh` | Builds the saver bundle and installs it to `~/Library/Screen Savers`. |
 | `ci/check.sh` | Pre-push check: builds both, parses the engine, verifies the page hooks, starts the page in WebKit, loads the saver and asserts it draws. |
+| `desktop/main.js` | The Windows/Linux shell: one transparent, click-through, always-on-top Electron window per display, a tray menu, settings window, battery and lock handling, the drift on disk. `npm test` starts it and checks every screen is drawing. |
+| `desktop/preload.js` | Gives the pages the `window.webkit.messageHandlers` bridge they already talk to, so they run unchanged. |
+| `snow.cmd` | The Windows launcher: installs Electron on first run, then starts the snow detached from the console. |
+| `.github/workflows/desktop.yml` | Runs the desktop self-test on Windows and Linux runners. |
 | `ci/check-page.swift` | Loads the page in a real WebKit view and asks the engine for its state. |
 
 Flakes fall under gravity against air resistance — `v' = g − (g/terminal²)·v²` — so they

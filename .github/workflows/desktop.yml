@@ -1,0 +1,33 @@
+# Starts the Windows/Linux shell on real runners and asks every page whether the
+# snow is falling (desktop/main.js --self-test). The macOS app is checked by ci/check.sh.
+name: desktop
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  self-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: self-test (Linux, on a virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          # Ubuntu 24.04 restricts the user namespaces Chromium's sandbox relies on.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          xvfb-run -a npm test
+      - name: self-test (Windows)
+        if: runner.os == 'Windows'
+        run: npm test

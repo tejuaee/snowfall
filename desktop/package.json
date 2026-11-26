@@ -1,0 +1,16 @@
+{
+  "name": "snowfall",
+  "version": "1.0.0",
+  "description": "Falling snow over your Windows or Linux desktop.",
+  "main": "main.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "electron . --ozone-platform=x11",
+    "stop": "electron . --ozone-platform=x11 --stop",
+    "test": "electron . --ozone-platform=x11 --self-test"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0"
+  }
+}

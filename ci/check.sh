@@ -20,6 +20,11 @@ else
   echo "  (node not installed, skipping the syntax check)"
 fi
 
+echo "· parsing the Windows/Linux shell"
+if command -v node >/dev/null; then
+  node --check desktop/main.js && node --check desktop/preload.js
+fi
+
 echo "· checking the hooks the app calls"
 for hook in setIntensity setPaused setPowerSaver applySettings sendPlow clearPile; do
   grep -q "window.$hook = " index.html || { echo "  missing window.$hook"; exit 1; }

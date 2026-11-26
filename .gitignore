@@ -2,3 +2,4 @@ snowfall
 .DS_Store
 *.dSYM/
 build/
+node_modules/
